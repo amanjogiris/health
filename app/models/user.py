@@ -27,16 +27,13 @@ from sqlalchemy import (
     Index,
 )
 
-from sqlalchemy.orm import declarative_base, declarative_mixin
-
+from sqlalchemy.orm import declarative_mixin
+from app.db.base import Base
 # Password hashing: prefer passlib bcrypt
 try:
     from passlib.hash import bcrypt  # type: ignore
 except Exception:  # pragma: no cover - explicit runtime error if missing
     bcrypt = None  # type: ignore
-
-
-Base = declarative_base()
 
 
 class UserRole(enum.Enum):
@@ -83,6 +80,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     password_hash: str = Column(String(128), nullable=False)
     mobile_no: Optional[str] = Column(String(20), nullable=True)
     address: Optional[str] = Column(Text, nullable=True)
+    image: Optional[str] = Column(String(255), nullable=True)  # URL or path to user's image
     role: UserRole = Column(SAEnum(UserRole, name="user_roles"), nullable=False, default=UserRole.PATIENT)
     is_verified: bool = Column(Boolean, default=False, nullable=False)
     last_login: Optional[datetime] = Column(DateTime(timezone=True), nullable=True)
@@ -136,6 +134,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
             "email": self.email,
             "mobile_no": self.mobile_no,
             "address": self.address,
+            "image": self.image,
             "role": self.role.value if isinstance(self.role, UserRole) else str(self.role),
             "is_verified": self.is_verified,
             "is_active": self.is_active,
