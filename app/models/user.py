@@ -149,4 +149,193 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         return data
 
 
-__all__ = ["Base", "User", "UserRole", "TimestampMixin", "SoftDeleteMixin"]
+class Patient(Base, TimestampMixin, SoftDeleteMixin):
+    """Patient model extending User with patient-specific fields."""
+
+    __tablename__ = "patients"
+    __table_args__ = (Index("ix_patients_user_id", "user_id"),)
+
+    id: int = Column(Integer, primary_key=True)
+    user_id: int = Column(Integer, nullable=False, unique=True, index=True)
+    date_of_birth: Optional[str] = Column(String(10), nullable=True)  # YYYY-MM-DD format
+    blood_group: Optional[str] = Column(String(5), nullable=True)
+    allergies: Optional[str] = Column(Text, nullable=True)
+    emergency_contact: Optional[str] = Column(String(20), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<Patient id={self.id} user_id={self.user_id}>"
+
+
+class Clinic(Base, TimestampMixin, SoftDeleteMixin):
+    """Clinic model for managing healthcare centers."""
+
+    __tablename__ = "clinics"
+    __table_args__ = (Index("ix_clinics_name", "name"),)
+
+    id: int = Column(Integer, primary_key=True)
+    name: str = Column(String(255), nullable=False)
+    address: str = Column(Text, nullable=False)
+    phone: str = Column(String(20), nullable=False)
+    email: str = Column(String(255), nullable=True)
+    city: str = Column(String(100), nullable=False)
+    state: str = Column(String(100), nullable=False)
+    zip_code: str = Column(String(10), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Clinic id={self.id} name={self.name}>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "address": self.address,
+            "phone": self.phone,
+            "email": self.email,
+            "city": self.city,
+            "state": self.state,
+            "zip_code": self.zip_code,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class Doctor(Base, TimestampMixin, SoftDeleteMixin):
+    """Doctor model with specialty and clinic mapping."""
+
+    __tablename__ = "doctors"
+    __table_args__ = (
+        Index("ix_doctors_user_id", "user_id"),
+        Index("ix_doctors_clinic_id", "clinic_id"),
+    )
+
+    id: int = Column(Integer, primary_key=True)
+    user_id: int = Column(Integer, nullable=False, unique=True, index=True)
+    clinic_id: int = Column(Integer, nullable=False, index=True)
+    specialty: str = Column(String(100), nullable=False)
+    license_number: str = Column(String(50), nullable=False, unique=True)
+    qualifications: Optional[str] = Column(Text, nullable=True)
+    experience_years: int = Column(Integer, default=0, nullable=False)
+    max_patients_per_day: int = Column(Integer, default=10, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Doctor id={self.id} user_id={self.user_id} specialty={self.specialty}>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "clinic_id": self.clinic_id,
+            "specialty": self.specialty,
+            "license_number": self.license_number,
+            "qualifications": self.qualifications,
+            "experience_years": self.experience_years,
+            "max_patients_per_day": self.max_patients_per_day,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class AppointmentSlot(Base, TimestampMixin, SoftDeleteMixin):
+    """Appointment slot model for doctor availability."""
+
+    __tablename__ = "appointment_slots"
+    __table_args__ = (
+        Index("ix_slots_doctor_id", "doctor_id"),
+        Index("ix_slots_clinic_id", "clinic_id"),
+        Index("ix_slots_slot_datetime", "slot_datetime"),
+    )
+
+    id: int = Column(Integer, primary_key=True)
+    doctor_id: int = Column(Integer, nullable=False, index=True)
+    clinic_id: int = Column(Integer, nullable=False, index=True)
+    slot_datetime: datetime = Column(DateTime(timezone=True), nullable=False, index=True)
+    duration_minutes: int = Column(Integer, default=30, nullable=False)
+    is_booked: bool = Column(Boolean, default=False, nullable=False)
+    capacity: int = Column(Integer, default=1, nullable=False)
+    booked_count: int = Column(Integer, default=0, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<AppointmentSlot id={self.id} doctor_id={self.doctor_id} slot_datetime={self.slot_datetime}>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "doctor_id": self.doctor_id,
+            "clinic_id": self.clinic_id,
+            "slot_datetime": self.slot_datetime.isoformat() if self.slot_datetime else None,
+            "duration_minutes": self.duration_minutes,
+            "is_booked": self.is_booked,
+            "capacity": self.capacity,
+            "booked_count": self.booked_count,
+            "available_slots": self.capacity - self.booked_count,
+        }
+
+
+class AppointmentStatus(enum.Enum):
+    """Status of an appointment."""
+
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+    NO_SHOW = "no_show"
+
+
+class Appointment(Base, TimestampMixin, SoftDeleteMixin):
+    """Appointment booking model."""
+
+    __tablename__ = "appointments"
+    __table_args__ = (
+        Index("ix_appointments_patient_id", "patient_id"),
+        Index("ix_appointments_doctor_id", "doctor_id"),
+        Index("ix_appointments_slot_id", "slot_id"),
+    )
+
+    id: int = Column(Integer, primary_key=True)
+    patient_id: int = Column(Integer, nullable=False, index=True)
+    doctor_id: int = Column(Integer, nullable=False, index=True)
+    clinic_id: int = Column(Integer, nullable=False)
+    slot_id: int = Column(Integer, nullable=False, unique=True, index=True)
+    status: AppointmentStatus = Column(
+        SAEnum(AppointmentStatus, name="appointment_status"),
+        nullable=False,
+        default=AppointmentStatus.PENDING,
+    )
+    reason_for_visit: Optional[str] = Column(Text, nullable=True)
+    notes: Optional[str] = Column(Text, nullable=True)
+    cancelled_at: Optional[datetime] = Column(DateTime(timezone=True), nullable=True)
+    cancelled_reason: Optional[str] = Column(Text, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<Appointment id={self.id} patient_id={self.patient_id} doctor_id={self.doctor_id} status={self.status.value}>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "doctor_id": self.doctor_id,
+            "clinic_id": self.clinic_id,
+            "slot_id": self.slot_id,
+            "status": self.status.value if isinstance(self.status, AppointmentStatus) else str(self.status),
+            "reason_for_visit": self.reason_for_visit,
+            "notes": self.notes,
+            "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,
+            "cancelled_reason": self.cancelled_reason,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+__all__ = [
+    "Base",
+    "User",
+    "Patient",
+    "Doctor",
+    "Clinic",
+    "AppointmentSlot",
+    "Appointment",
+    "UserRole",
+    "AppointmentStatus",
+    "TimestampMixin",
+    "SoftDeleteMixin",
+]
