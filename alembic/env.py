@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.db.base import Base
+from app.db.database import DATABASE_URL
 import app.models
 
 from alembic import context
@@ -17,6 +18,12 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
+# Override the URL from the application's single source of truth so that
+# alembic.ini does not need to duplicate or interpolate credentials.
+# ConfigParser treats % as an interpolation character, so percent-encoded
+# characters (e.g. %40 for @) must be doubled (%%) to be stored literally.
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
@@ -24,7 +31,6 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-import app.models
 target_metadata = Base.metadata
 
 

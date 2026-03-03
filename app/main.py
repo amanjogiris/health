@@ -9,7 +9,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.db.database import get_db
 from app import schemas
 from app.crud import (
     UserRepository,
@@ -19,7 +19,7 @@ from app.crud import (
     AppointmentSlotRepository,
     AppointmentRepository,
 )
-from app.model import User, UserRole, AppointmentStatus
+from app.models import User, UserRole, AppointmentStatus
 
 # ============================================================================
 # Configuration
@@ -48,6 +48,10 @@ SECRET_KEY = "your-secret-key-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# In-memory token blacklist (invalidated tokens are stored here until expiry).
+# For multi-process or production deployments, replace with Redis.
+_token_blacklist: set[str] = set()
+
 # ============================================================================
 # Utility Functions
 # ============================================================================
@@ -72,6 +76,9 @@ async def get_current_user(
     """Get current authenticated user from token."""
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    if token in _token_blacklist:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been invalidated. Please log in again.")
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -171,6 +178,16 @@ async def login(credentials: schemas.UserLogin, db: AsyncSession = Depends(get_d
         access_token=token,
         user=schemas.UserResponse(**user.to_dict()),
     )
+
+
+@app.post("/api/v1/auth/logout", response_model=schemas.LogoutResponse, tags=["Authentication"])
+async def logout(
+    token: str = Query(..., description="JWT token"),
+    current_user: User = Depends(get_current_user),
+):
+    """Logout the current user by invalidating their token."""
+    _token_blacklist.add(token)
+    return schemas.LogoutResponse(message="Successfully logged out")
 
 
 @app.get("/api/v1/auth/profile", response_model=schemas.UserResponse, tags=["Authentication"])

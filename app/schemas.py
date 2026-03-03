@@ -56,6 +56,12 @@ class AuthToken(BaseModel):
     user: UserResponse
 
 
+class LogoutResponse(BaseModel):
+    """Schema for logout response."""
+
+    message: str = "Successfully logged out"
+
+
 # ============================================================================
 # Patient Schemas
 # ============================================================================

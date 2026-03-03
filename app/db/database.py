@@ -11,9 +11,21 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine, async_sessionmaker
 
 from app.db.base import Base
+import os
+from urllib.parse import quote_plus
+from dotenv import load_dotenv
 
-# Replace with your real URL or keep alembic.ini as single source of truth.
-DATABASE_URL = "postgresql+asyncpg://postgres:Cancer%40%232626@localhost:5432/health_db"
+load_dotenv()
+
+# Build the URL from individual env vars so special characters in passwords
+# (e.g. @, #, %) are safely percent-encoded and never break URL parsing.
+_user = os.getenv("DB_USER", "postgres")
+_password = quote_plus(os.getenv("DB_PASSWORD", ""))
+_host = os.getenv("DB_HOST", "localhost")
+_port = os.getenv("DB_PORT", "5432")
+_name = os.getenv("DB_NAME", "health_db")
+
+DATABASE_URL = f"postgresql+asyncpg://{_user}:{_password}@{_host}:{_port}/{_name}"
 
 
 engine: AsyncEngine = create_async_engine(DATABASE_URL, future=True)

@@ -5,7 +5,7 @@ from typing import List, Optional
 from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.model import (
+from app.models import (
     User,
     Patient,
     Doctor,
