@@ -1,14 +1,11 @@
-"""User model for the health_app.
-
-Password hashing uses `passlib`'s bcrypt algorithm.
-Install with: pip install passlib[bcrypt]
-"""
+"""User model for the health_app."""
 from __future__ import annotations
 
 import enum
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+import bcrypt as _bcrypt
 from sqlalchemy import (
     Boolean,
     Column,
@@ -23,19 +20,15 @@ from sqlalchemy import (
 from app.db.base import Base
 from app.models.mixins import SoftDeleteMixin, TimestampMixin
 
-# Password hashing: prefer passlib bcrypt
-try:
-    from passlib.hash import bcrypt  # type: ignore
-except Exception:  # pragma: no cover - explicit runtime error if missing
-    bcrypt = None  # type: ignore
-
 
 class UserRole(enum.Enum):
     """Canonical user roles used for authorization and behaviour.
 
     Keep values lowercase for easier checks when reading from JSON/HTTP.
+    Role hierarchy (highest → lowest): SUPER_ADMIN > ADMIN > DOCTOR > PATIENT
     """
 
+    SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
     DOCTOR = "doctor"
     PATIENT = "patient"
@@ -58,7 +51,11 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     mobile_no: Optional[str] = Column(String(20), nullable=True)
     address: Optional[str] = Column(Text, nullable=True)
     image: Optional[str] = Column(String(255), nullable=True)  # URL or path to user's image
-    role: UserRole = Column(SAEnum(UserRole, name="user_roles"), nullable=False, default=UserRole.PATIENT)
+    role: UserRole = Column(
+        SAEnum(UserRole, name="user_roles", values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=UserRole.PATIENT,
+    )
     is_verified: bool = Column(Boolean, default=False, nullable=False)
     last_login: Optional[datetime] = Column(DateTime(timezone=True), nullable=True)
 
@@ -66,24 +63,14 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         return f"<User id={self.id} email={self.email} role={self.role.value}>"
 
     # ---- Password helpers -------------------------------------------------
-    @staticmethod
-    def _require_bcrypt() -> None:
-        if bcrypt is None:
-            raise RuntimeError(
-                "passlib is required for secure password hashing. "
-                "Install with: pip install passlib[bcrypt]"
-            )
-
     def set_password(self, password: str) -> None:
-        """Hash and set the user's password."""
-        self._require_bcrypt()
-        self.password_hash = bcrypt.hash(password)
+        """Hash and store the user's password using bcrypt."""
+        self.password_hash = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
 
     def verify_password(self, password: str) -> bool:
-        """Verify a plaintext password against the stored hash."""
-        self._require_bcrypt()
+        """Return True if *password* matches the stored hash."""
         try:
-            return bcrypt.verify(password, self.password_hash)
+            return _bcrypt.checkpw(password.encode(), self.password_hash.encode())
         except Exception:
             return False
 

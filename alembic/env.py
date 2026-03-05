@@ -9,8 +9,10 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.db.base import Base
-from app.db.database import DATABASE_URL
-import app.models
+from app.config import settings
+import app.models  # noqa: F401 – registers all models with metadata
+
+DATABASE_URL = settings.DATABASE_URL
 
 from alembic import context
 

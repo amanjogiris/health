@@ -28,28 +28,28 @@ class AppointmentSlot(Base, TimestampMixin, SoftDeleteMixin):
     __table_args__ = (
         Index("ix_slots_doctor_id", "doctor_id"),
         Index("ix_slots_clinic_id", "clinic_id"),
-        Index("ix_slots_slot_datetime", "slot_datetime"),
+        Index("ix_slots_start_time", "start_time"),
     )
 
     id: int = Column(Integer, primary_key=True)
     doctor_id: int = Column(Integer, nullable=False, index=True)
     clinic_id: int = Column(Integer, nullable=False, index=True)
-    slot_datetime: datetime = Column(DateTime(timezone=True), nullable=False, index=True)
-    duration_minutes: int = Column(Integer, default=30, nullable=False)
+    start_time: datetime = Column(DateTime(timezone=True), nullable=False, index=True)
+    end_time: datetime = Column(DateTime(timezone=True), nullable=False)
     is_booked: bool = Column(Boolean, default=False, nullable=False)
     capacity: int = Column(Integer, default=1, nullable=False)
     booked_count: int = Column(Integer, default=0, nullable=False)
 
     def __repr__(self) -> str:
-        return f"<AppointmentSlot id={self.id} doctor_id={self.doctor_id} slot_datetime={self.slot_datetime}>"
+        return f"<AppointmentSlot id={self.id} doctor_id={self.doctor_id} start_time={self.start_time}>"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "doctor_id": self.doctor_id,
             "clinic_id": self.clinic_id,
-            "slot_datetime": self.slot_datetime.isoformat() if self.slot_datetime else None,
-            "duration_minutes": self.duration_minutes,
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
             "is_booked": self.is_booked,
             "capacity": self.capacity,
             "booked_count": self.booked_count,
