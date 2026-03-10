@@ -43,6 +43,7 @@ class UserResponse(BaseModel):
     role: str
     mobile_no: Optional[str] = None
     address: Optional[str] = None
+    image: Optional[str] = None
     is_verified: bool
     is_active: bool
     last_login: Optional[datetime] = None
@@ -56,6 +57,21 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class UserProfileUpdate(BaseModel):
+    """Fields a user can update on their own profile."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    mobile_no: Optional[str] = Field(None, max_length=20)
+    address: Optional[str] = None
+
+
+class ChangePassword(BaseModel):
+    """Change authenticated user's password."""
+
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 class LogoutResponse(BaseModel):

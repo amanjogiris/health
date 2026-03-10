@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.appointment import Appointment, AppointmentStatus
 from app.models.user import User, UserRole
 from app.repositories.appointment_repository import AppointmentRepository
+from app.repositories.doctor_repository import DoctorRepository
 from app.repositories.slot_repository import SlotRepository
 from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentResponse
 from app.utils.exceptions import BusinessRuleError, ForbiddenError, NotFoundError
@@ -18,6 +19,7 @@ class AppointmentService:
         self.db = db
         self._repo = AppointmentRepository(db)
         self._slot_repo = SlotRepository(db)
+        self._doctor_repo = DoctorRepository(db)
 
     async def book(self, payload: AppointmentBook) -> AppointmentResponse:
         """Book an appointment.
@@ -47,7 +49,7 @@ class AppointmentService:
                 slot_id=payload.slot_id,
                 clinic_id=payload.clinic_id,
                 reason_for_visit=payload.reason_for_visit,
-                status=AppointmentStatus.PENDING,
+                status=AppointmentStatus.BOOKED,
             )
             self.db.add(appt)
             await self.db.flush()
@@ -84,9 +86,10 @@ class AppointmentService:
 
         if (
             current_user.role == UserRole.DOCTOR
-            and appt.doctor_id != current_user.id
         ):
-            raise ForbiddenError("You are not authorised to cancel this appointment.")
+            doctor = await self._doctor_repo.get_by_user_id(current_user.id)
+            if doctor is None or appt.doctor_id != doctor.id:
+                raise ForbiddenError("You are not authorised to cancel this appointment.")
 
         if appt.status == AppointmentStatus.CANCELLED:
             raise BusinessRuleError("Appointment is already cancelled.")

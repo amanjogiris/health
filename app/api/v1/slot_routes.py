@@ -33,7 +33,8 @@ async def list_slots(
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=1000),
+    include_all: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
     return await SlotService(db).list_available(
@@ -43,6 +44,7 @@ async def list_slots(
         date_to=date_to,
         skip=skip,
         limit=limit,
+        include_all=include_all,
     )
 
 

@@ -96,11 +96,13 @@ class SlotRepository:
         date_to: Optional[datetime] = None,
         skip: int = 0,
         limit: int = 100,
+        include_all: bool = False,
     ) -> List[AppointmentSlot]:
         stmt = select(AppointmentSlot).where(
             AppointmentSlot.is_active == True,
-            AppointmentSlot.booked_count < AppointmentSlot.capacity,
         )
+        if not include_all:
+            stmt = stmt.where(AppointmentSlot.booked_count < AppointmentSlot.capacity)
         if doctor_id:
             stmt = stmt.where(AppointmentSlot.doctor_id == doctor_id)
         if clinic_id:

@@ -15,6 +15,7 @@ class AppointmentStatus(enum.Enum):
     """Status of an appointment."""
 
     PENDING = "pending"
+    BOOKED = "booked"
     CONFIRMED = "confirmed"
     CANCELLED = "cancelled"
     COMPLETED = "completed"

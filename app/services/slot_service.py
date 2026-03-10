@@ -42,6 +42,7 @@ class SlotService:
         date_to: Optional[datetime] = None,
         skip: int = 0,
         limit: int = 100,
+        include_all: bool = False,
     ) -> List[SlotResponse]:
         slots = await self._repo.list_available(
             doctor_id=doctor_id,
@@ -50,6 +51,7 @@ class SlotService:
             date_to=date_to,
             skip=skip,
             limit=limit,
+            include_all=include_all,
         )
         return [SlotResponse.model_validate(s) for s in slots]
 

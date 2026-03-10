@@ -31,6 +31,7 @@ class AppointmentResponse(BaseModel):
     cancelled_at: Optional[datetime] = None
     cancelled_reason: Optional[str] = None
     created_at: Optional[datetime] = None
+    patient_name: Optional[str] = None
 
     class Config:
         from_attributes = True

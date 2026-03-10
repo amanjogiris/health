@@ -7,9 +7,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+import os
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.core.logging import configure_logging
@@ -54,6 +57,11 @@ def create_app() -> FastAPI:
     app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
+
+    # ── Static files (profile images) ─────────────────────────────────────
+    static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
+    os.makedirs(os.path.join(static_dir, 'uploads'), exist_ok=True)
+    app.mount('/static', StaticFiles(directory=static_dir), name='static')
 
     # ── Routers ───────────────────────────────────────────────────────────
     app.include_router(v1_router)

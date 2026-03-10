@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime
 from typing import List, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.doctor import Doctor
@@ -47,7 +48,7 @@ class DoctorService:
         clinic_id: int,
         duration_minutes: int,
         availability_inputs: List[AvailabilityInput],
-        days_ahead: int = 30,
+        days_ahead: int = 7,
     ) -> int:
         """Generate appointment slots for the next *days_ahead* days.
 
@@ -150,7 +151,19 @@ class DoctorService:
         if doctor is None:
             raise NotFoundError("Doctor profile")
         data = await self._appt_repo.list_by_doctor(doctor.id, skip, limit)
-        return [AppointmentResponse.model_validate(a) for a in data]
+        # Batch-load patient names
+        patient_ids = list({a.patient_id for a in data})
+        if patient_ids:
+            result = await self.db.execute(select(User).where(User.id.in_(patient_ids)))
+            user_map = {u.id: u.name for u in result.scalars().all()}
+        else:
+            user_map = {}
+        responses = []
+        for a in data:
+            r = AppointmentResponse.model_validate(a)
+            r.patient_name = user_map.get(a.patient_id)
+            responses.append(r)
+        return responses
 
     async def list_all(
         self,
