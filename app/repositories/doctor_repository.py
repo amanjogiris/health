@@ -77,10 +77,16 @@ class DoctorRepository:
         limit: int = 100,
         specialty: Optional[str] = None,
         clinic_id: Optional[int] = None,
-    ) -> List[Tuple[Doctor, Optional[str], Optional[str]]]:
-        """Return (Doctor, doctor_name, clinic_name) rows via JOIN."""
+    ) -> List[Tuple[Doctor, Optional[str], Optional[str], Optional[str], Optional[str]]]:
+        """Return (Doctor, doctor_name, clinic_name, user_email, user_mobile_no) rows via JOIN."""
         stmt = (
-            select(Doctor, User.name.label("user_name"), Clinic.name.label("clinic_name"))
+            select(
+                Doctor,
+                User.name.label("user_name"),
+                Clinic.name.label("clinic_name"),
+                User.email.label("user_email"),
+                User.mobile_no.label("user_mobile_no"),
+            )
             .join(User, User.id == Doctor.user_id, isouter=True)
             .join(Clinic, Clinic.id == Doctor.clinic_id, isouter=True)
             .where(Doctor.is_active == True)

@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.doctor_schema import (
     AvailabilityInput,
     AvailabilityResponse,
+    AdminDoctorUpdate,
     DoctorCreate,
     DoctorRegister,
     DoctorResponse,
@@ -115,12 +116,12 @@ async def create_doctor(
 @router.put("/{doctor_id}", response_model=DoctorResponse)
 async def update_doctor(
     doctor_id: int,
-    payload: DoctorUpdate,
+    payload: AdminDoctorUpdate,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_role(["ADMIN", "SUPER_ADMIN"])),
 ):
-    """Admin / Super-Admin: update any doctor record."""
-    return await DoctorService(db).update(doctor_id, payload)
+    """Admin / Super-Admin: full update (user fields + doctor profile)."""
+    return await DoctorService(db).admin_full_update(doctor_id, payload)
 
 
 @router.delete("/{doctor_id}", status_code=204)

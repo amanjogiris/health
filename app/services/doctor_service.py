@@ -17,6 +17,7 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.doctor_schema import (
     AvailabilityInput,
     AvailabilityResponse,
+    AdminDoctorUpdate,
     DoctorCreate,
     DoctorRegister,
     DoctorResponse,
@@ -107,11 +108,15 @@ class DoctorService:
         doctor: Doctor,
         doctor_name: Optional[str] = None,
         clinic_name: Optional[str] = None,
+        email: Optional[str] = None,
+        mobile_no: Optional[str] = None,
         availability: Optional[List[AvailabilityResponse]] = None,
     ) -> DoctorResponse:
         resp = DoctorResponse.model_validate(doctor)
         resp.doctor_name = doctor_name
         resp.clinic_name = clinic_name
+        resp.email = email
+        resp.mobile_no = mobile_no
         resp.availability = availability
         return resp
 
@@ -176,8 +181,8 @@ class DoctorService:
             skip=skip, limit=limit, specialty=specialty, clinic_id=clinic_id
         )
         return [
-            self._build_response(doctor, doctor_name=user_name, clinic_name=c_name)
-            for doctor, user_name, c_name in rows
+            self._build_response(doctor, doctor_name=user_name, clinic_name=c_name, email=u_email, mobile_no=u_mobile)
+            for doctor, user_name, c_name, u_email, u_mobile in rows
         ]
 
     async def update(self, doctor_id: int, payload: DoctorUpdate) -> DoctorResponse:
@@ -186,6 +191,29 @@ class DoctorService:
             raise NotFoundError("Doctor")
         updated = await self._repo.update(doctor_id, **payload.model_dump(exclude_unset=True))
         return DoctorResponse.model_validate(updated)
+
+    async def admin_full_update(self, doctor_id: int, payload: AdminDoctorUpdate) -> DoctorResponse:
+        """Admin: update user-level fields (name, email, mobile_no) + doctor-profile fields."""
+        doctor = await self._repo.get_by_id(doctor_id)
+        if doctor is None:
+            raise NotFoundError("Doctor")
+        user_field_keys = {"name", "email", "mobile_no"}
+        user_fields = {k: v for k, v in payload.model_dump(exclude_unset=True).items()
+                       if k in user_field_keys and v is not None}
+        if user_fields:
+            user_repo = UserRepository(self.db)
+            await user_repo.update(doctor.user_id, **user_fields)
+        doctor_fields = {k: v for k, v in payload.model_dump(exclude_unset=True).items()
+                         if k not in user_field_keys and v is not None}
+        if doctor_fields:
+            await self._repo.update(doctor_id, **doctor_fields)
+        # Return enriched response by re-fetching via list_all
+        rows = await self._repo.list_all_enriched(skip=0, limit=1000)
+        for doc, user_name, c_name, u_email, u_mobile in rows:
+            if doc.id == doctor_id:
+                return self._build_response(doc, doctor_name=user_name, clinic_name=c_name, email=u_email, mobile_no=u_mobile)
+        doctor = await self._repo.get_by_id(doctor_id)
+        return DoctorResponse.model_validate(doctor)
 
     async def delete(self, doctor_id: int) -> None:
         doctor = await self._repo.get_by_id(doctor_id)

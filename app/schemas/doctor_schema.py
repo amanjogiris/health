@@ -64,6 +64,23 @@ class DoctorRegister(BaseModel):
 class DoctorUpdate(BaseModel):
     clinic_id: Optional[int] = None
     specialty: Optional[str] = Field(None, max_length=100)
+    license_number: Optional[str] = Field(None, max_length=50)
+    qualifications: Optional[str] = None
+    experience_years: Optional[int] = Field(None, ge=0, le=80)
+    max_patients_per_day: Optional[int] = Field(None, ge=1, le=100)
+    consultation_duration_minutes: Optional[int] = Field(None, ge=5, le=120)
+
+
+class AdminDoctorUpdate(BaseModel):
+    """Full doctor update for admin – covers user-level and doctor-profile fields."""
+    # User-level fields
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    email: Optional[str] = Field(None, min_length=3, max_length=255)
+    mobile_no: Optional[str] = Field(None, max_length=20)
+    # Doctor-profile fields
+    clinic_id: Optional[int] = None
+    specialty: Optional[str] = Field(None, max_length=100)
+    license_number: Optional[str] = Field(None, max_length=50)
     qualifications: Optional[str] = None
     experience_years: Optional[int] = Field(None, ge=0, le=80)
     max_patients_per_day: Optional[int] = Field(None, ge=1, le=100)
@@ -87,6 +104,8 @@ class DoctorResponse(BaseModel):
     updated_at: Optional[datetime.datetime] = None
     # Enriched fields (populated by service layer JOIN)
     doctor_name: Optional[str] = None
+    email: Optional[str] = None
+    mobile_no: Optional[str] = None
     clinic_name: Optional[str] = None
     # Availability (populated on request)
     availability: Optional[List[AvailabilityResponse]] = None
