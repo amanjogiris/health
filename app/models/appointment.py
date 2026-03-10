@@ -19,6 +19,7 @@ class AppointmentStatus(enum.Enum):
     CANCELLED = "cancelled"
     COMPLETED = "completed"
     NO_SHOW = "no_show"
+    REJECTED = "rejected"
 
 
 class AppointmentSlot(Base, TimestampMixin, SoftDeleteMixin):

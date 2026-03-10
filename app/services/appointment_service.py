@@ -5,7 +5,7 @@ from typing import List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.appointment import AppointmentStatus
+from app.models.appointment import Appointment, AppointmentStatus
 from app.models.user import User, UserRole
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.slot_repository import SlotRepository
@@ -23,9 +23,11 @@ class AppointmentService:
         """Book an appointment.
 
         Uses SELECT FOR UPDATE on the slot row to prevent concurrent double-booking.
+        All writes are flushed atomically in one transaction and committed once at
+        the end so the row lock is held until the slot count update is also persisted.
         """
-        async with self.db.begin_nested():
-            # Lock the row so concurrent requests queue up
+        try:
+            # Lock the slot row — concurrent requests queue here until we commit
             slot = await self._slot_repo.get_by_id_with_lock(payload.slot_id)
             if slot is None:
                 raise NotFoundError("Slot")
@@ -37,7 +39,9 @@ class AppointmentService:
             if existing and existing.patient_id == payload.patient_id:
                 raise BusinessRuleError("You have already booked this slot.")
 
-            appt = await self._repo.create(
+            # Add appointment and flush to get the DB-assigned id without committing
+            # (keeps the slot row lock active)
+            appt = Appointment(
                 patient_id=payload.patient_id,
                 doctor_id=payload.doctor_id,
                 slot_id=payload.slot_id,
@@ -45,14 +49,23 @@ class AppointmentService:
                 reason_for_visit=payload.reason_for_visit,
                 status=AppointmentStatus.PENDING,
             )
+            self.db.add(appt)
+            await self.db.flush()
 
-            # Increment booked count; mark as fully booked when capacity is reached
+            # Increment booked count on the locked slot object directly
             new_count = slot.booked_count + 1
-            await self._slot_repo.update(
-                slot.id,
-                booked_count=new_count,
-                is_booked=(new_count >= slot.capacity),
-            )
+            slot.booked_count = new_count
+            slot.is_booked = new_count >= slot.capacity
+            self.db.add(slot)
+
+            # Single commit — atomically persists appointment + slot update
+            # and releases the SELECT FOR UPDATE lock
+            await self.db.commit()
+            await self.db.refresh(appt)
+
+        except Exception:
+            await self.db.rollback()
+            raise
 
         return AppointmentResponse.model_validate(appt)
 
