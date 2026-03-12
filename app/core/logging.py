@@ -21,7 +21,7 @@ def configure_logging() -> None:
     )
 
     # Silence noisy third-party loggers
-    for noisy in ("uvicorn.access", "sqlalchemy.engine"):
+    for noisy in ("sqlalchemy.engine",):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

@@ -1,7 +1,7 @@
 """Patient routes."""
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,20 +11,22 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.patient_schema import PatientUpdate, PatientResponse, AdminPatientUpdate
 from app.schemas.appointment_schema import AppointmentResponse
+from app.schemas.pagination import PaginatedResponse
 from app.services.patient_service import PatientService
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
 
-@router.get("", response_model=List[PatientResponse])
+@router.get("", response_model=PaginatedResponse[PatientResponse])
 async def list_patients(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=200),
+    search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_role(["ADMIN", "SUPER_ADMIN"])),
 ):
     """Admin / Super-Admin: list all patients."""
-    return await PatientService(db).list_all(skip, limit)
+    return await PatientService(db).list_all(skip, limit, search)
 
 
 @router.get("/{patient_id}", response_model=PatientResponse)

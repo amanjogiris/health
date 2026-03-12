@@ -4,9 +4,10 @@ from __future__ import annotations
 import datetime
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.clinic import Clinic
 from app.models.doctor import Doctor
 from app.models.user import User, UserRole
 from app.repositories.availability_repository import AvailabilityRepository
@@ -24,6 +25,7 @@ from app.schemas.doctor_schema import (
     DoctorUpdate,
 )
 from app.schemas.appointment_schema import AppointmentResponse
+from app.schemas.pagination import PaginatedResponse
 from app.utils.exceptions import ConflictError, NotFoundError
 
 
@@ -175,15 +177,37 @@ class DoctorService:
         specialty: Optional[str] = None,
         clinic_id: Optional[int] = None,
         skip: int = 0,
-        limit: int = 100,
-    ) -> List[DoctorResponse]:
-        rows = await self._repo.list_all_enriched(
-            skip=skip, limit=limit, specialty=specialty, clinic_id=clinic_id
+        limit: int = 10,
+        search: Optional[str] = None,
+    ) -> PaginatedResponse[DoctorResponse]:
+        # Build base count stmt with same filters as enriched query
+        count_stmt = (
+            select(func.count())
+            .select_from(Doctor)
+            .join(User, User.id == Doctor.user_id, isouter=True)
+            .join(Clinic, Clinic.id == Doctor.clinic_id, isouter=True)
+            .where(Doctor.is_active == True)
         )
-        return [
+        if specialty:
+            count_stmt = count_stmt.where(Doctor.specialty == specialty)
+        if clinic_id:
+            count_stmt = count_stmt.where(Doctor.clinic_id == clinic_id)
+        if search:
+            q = f"%{search}%"
+            count_stmt = count_stmt.where(
+                or_(User.name.ilike(q), Doctor.specialty.ilike(q), Clinic.name.ilike(q))
+            )
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        rows = await self._repo.list_all_enriched(
+            skip=skip, limit=limit, specialty=specialty, clinic_id=clinic_id, search=search
+        )
+        items = [
             self._build_response(doctor, doctor_name=user_name, clinic_name=c_name, email=u_email, mobile_no=u_mobile)
             for doctor, user_name, c_name, u_email, u_mobile in rows
         ]
+        return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
     async def update(self, doctor_id: int, payload: DoctorUpdate) -> DoctorResponse:
         doctor = await self._repo.get_by_id(doctor_id)

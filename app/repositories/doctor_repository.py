@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.clinic import Clinic
@@ -74,9 +74,10 @@ class DoctorRepository:
     async def list_all_enriched(
         self,
         skip: int = 0,
-        limit: int = 100,
+        limit: int = 10,
         specialty: Optional[str] = None,
         clinic_id: Optional[int] = None,
+        search: Optional[str] = None,
     ) -> List[Tuple[Doctor, Optional[str], Optional[str], Optional[str], Optional[str]]]:
         """Return (Doctor, doctor_name, clinic_name, user_email, user_mobile_no) rows via JOIN."""
         stmt = (
@@ -95,6 +96,11 @@ class DoctorRepository:
             stmt = stmt.where(Doctor.specialty == specialty)
         if clinic_id:
             stmt = stmt.where(Doctor.clinic_id == clinic_id)
+        if search:
+            q = f"%{search}%"
+            stmt = stmt.where(
+                or_(User.name.ilike(q), Doctor.specialty.ilike(q), Clinic.name.ilike(q))
+            )
         stmt = stmt.offset(skip).limit(limit)
         result = await self.db.execute(stmt)
         return list(result.all())

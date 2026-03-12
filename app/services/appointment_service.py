@@ -1,16 +1,19 @@
 """Appointment service – booking and cancellation with race-condition protection."""
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.appointment import Appointment, AppointmentStatus
+from app.models.patient import Patient
 from app.models.user import User, UserRole
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.doctor_repository import DoctorRepository
 from app.repositories.slot_repository import SlotRepository
 from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentResponse
+from app.schemas.pagination import PaginatedResponse
 from app.utils.exceptions import BusinessRuleError, ForbiddenError, NotFoundError
 
 
@@ -130,6 +133,53 @@ class AppointmentService:
 
         return AppointmentResponse.model_validate(appt)
 
-    async def list_all(self, skip: int = 0, limit: int = 100) -> List[AppointmentResponse]:
-        data = await self._repo.list_all(skip=skip, limit=limit)
-        return [AppointmentResponse.model_validate(a) for a in data]
+    async def list_all(
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        search: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> PaginatedResponse[AppointmentResponse]:
+        base_filters = [Appointment.is_active == True]
+        if status and status.lower() != 'all':
+            from sqlalchemy import cast, String
+            base_filters.append(cast(Appointment.status, String) == status.upper())
+        if search:
+            q = f"%{search}%"
+            from sqlalchemy import or_, cast, String
+            base_filters.append(
+                or_(
+                    User.name.ilike(q),
+                    Appointment.reason_for_visit.ilike(q),
+                    cast(Appointment.status, String).ilike(q),
+                )
+            )
+
+        join_stmt = (
+            select(Appointment)
+            .join(Patient, Appointment.patient_id == Patient.id)
+            .join(User, Patient.user_id == User.id)
+            .where(*base_filters)
+        )
+
+        count_result = await self.db.execute(
+            select(func.count()).select_from(join_stmt.subquery())
+        )
+        total = count_result.scalar_one()
+
+        data_result = await self.db.execute(
+            select(Appointment, User.name)
+            .join(Patient, Appointment.patient_id == Patient.id)
+            .join(User, Patient.user_id == User.id)
+            .where(*base_filters)
+            .order_by(Appointment.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        rows = data_result.all()
+        out = []
+        for appt, pname in rows:
+            resp = AppointmentResponse.model_validate(appt)
+            resp.patient_name = pname
+            out.append(resp)
+        return PaginatedResponse(items=out, total=total, skip=skip, limit=limit)

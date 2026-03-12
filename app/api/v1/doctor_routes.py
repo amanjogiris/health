@@ -19,6 +19,7 @@ from app.schemas.doctor_schema import (
     DoctorUpdate,
 )
 from app.schemas.appointment_schema import AppointmentResponse
+from app.schemas.pagination import PaginatedResponse
 from app.services.doctor_service import DoctorService
 
 router = APIRouter(prefix="/doctors", tags=["Doctors"])
@@ -26,16 +27,17 @@ router = APIRouter(prefix="/doctors", tags=["Doctors"])
 
 # ── Public / all-authenticated ────────────────────────────────────────────────
 
-@router.get("", response_model=List[DoctorResponse])
+@router.get("", response_model=PaginatedResponse[DoctorResponse])
 async def list_doctors(
     specialty: Optional[str] = Query(None),
     clinic_id: Optional[int] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=200),
+    search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Public: anyone can browse doctors (returns doctor_name + clinic_name)."""
-    return await DoctorService(db).list_all(specialty=specialty, clinic_id=clinic_id, skip=skip, limit=limit)
+    return await DoctorService(db).list_all(specialty=specialty, clinic_id=clinic_id, skip=skip, limit=limit, search=search)
 
 
 @router.get("/profile", response_model=DoctorResponse)

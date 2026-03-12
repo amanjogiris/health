@@ -11,20 +11,22 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.clinic_schema import ClinicCreate, ClinicUpdate, ClinicResponse
 from app.schemas.doctor_schema import DoctorResponse
+from app.schemas.pagination import PaginatedResponse
 from app.services.clinic_service import ClinicService
 
 router = APIRouter(prefix="/clinics", tags=["Clinics"])
 
 
-@router.get("", response_model=List[ClinicResponse])
+@router.get("", response_model=PaginatedResponse[ClinicResponse])
 async def list_clinics(
     city: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=200),
+    search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Public: anyone can list clinics."""
-    return await ClinicService(db).list_all(city=city, skip=skip, limit=limit)
+    return await ClinicService(db).list_all(city=city, skip=skip, limit=limit, search=search)
 
 
 @router.get("/{clinic_id}", response_model=ClinicResponse)

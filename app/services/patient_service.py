@@ -1,7 +1,7 @@
 """Patient service – profile retrieval and updates."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.patient_repository import PatientRepository
@@ -9,10 +9,11 @@ from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.patient_schema import PatientUpdate, PatientResponse, AdminPatientUpdate
 from app.schemas.appointment_schema import AppointmentResponse
+from app.schemas.pagination import PaginatedResponse
 from app.utils.exceptions import NotFoundError, ForbiddenError
 from app.models.user import User, UserRole
 from app.models.patient import Patient
-from typing import List
+from typing import List, Optional
 
 
 class PatientService:
@@ -42,15 +43,37 @@ class PatientService:
 
         return PatientResponse.model_validate(patient)
 
-    async def list_all(self, skip: int = 0, limit: int = 100) -> List[PatientResponse]:
-        result = await self.db.execute(
+    async def list_all(
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        search: Optional[str] = None,
+    ) -> PaginatedResponse[PatientResponse]:
+        base_filters = [Patient.is_active == True]
+        if search:
+            q = f"%{search}%"
+            base_filters.append(
+                or_(User.name.ilike(q), User.email.ilike(q))
+            )
+
+        join_stmt = (
+            select(Patient)
+            .join(User, Patient.user_id == User.id)
+            .where(*base_filters)
+        )
+        count_result = await self.db.execute(
+            select(func.count()).select_from(join_stmt.subquery())
+        )
+        total = count_result.scalar_one()
+
+        data_result = await self.db.execute(
             select(Patient, User)
             .join(User, Patient.user_id == User.id)
-            .where(Patient.is_active == True)
+            .where(*base_filters)
             .offset(skip)
             .limit(limit)
         )
-        rows = result.all()
+        rows = data_result.all()
         responses = []
         for patient, user in rows:
             resp = PatientResponse.model_validate(patient)
@@ -59,7 +82,7 @@ class PatientService:
             resp.mobile_no = getattr(user, "mobile_no", None)
             resp.address = getattr(user, "address", None)
             responses.append(resp)
-        return responses
+        return PaginatedResponse(items=responses, total=total, skip=skip, limit=limit)
 
     async def update_with_ownership_check(
         self, patient_id: int, payload: PatientUpdate, current_user: User
@@ -95,8 +118,8 @@ class PatientService:
         if profile_fields:
             await self._repo.update(patient_id, **profile_fields)
         # Re-fetch enriched response
-        updated_patients = await self.list_all()
-        for p in updated_patients:
+        result = await self.list_all(skip=0, limit=1000)
+        for p in result.items:
             if p.id == patient_id:
                 return p
         return await self.get(patient_id)

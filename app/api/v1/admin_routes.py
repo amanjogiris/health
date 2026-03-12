@@ -1,15 +1,17 @@
 """Admin management routes – SUPER_ADMIN only."""
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_role
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.user_schema import AdminCreate, UserResponse
+from app.schemas.pagination import PaginatedResponse
 from app.services.auth_service import AuthService
 from app.repositories.user_repository import UserRepository
 
@@ -26,14 +28,27 @@ async def create_admin(
     return await AuthService(db).create_admin(payload)
 
 
-@router.get("", response_model=List[UserResponse])
+@router.get("", response_model=PaginatedResponse[UserResponse])
 async def list_admins(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_role(["SUPER_ADMIN"])),
 ):
     """Super-Admin: list all ADMIN accounts."""
-    users = await UserRepository(db).list_by_role("admin")
-    return [UserResponse.model_validate(u.to_dict()) for u in users]
+    count_result = await db.execute(
+        select(func.count()).select_from(User).where(
+            User.role == UserRole("admin"), User.is_active == True
+        )
+    )
+    total = count_result.scalar_one()
+    users = await UserRepository(db).list_by_role("admin", skip=skip, limit=limit)
+    return PaginatedResponse(
+        items=[UserResponse.model_validate(u.to_dict()) for u in users],
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.delete("/{admin_id}", status_code=204)
