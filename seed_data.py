@@ -431,7 +431,7 @@ async def seed(clean: bool) -> None:
                 {
                     "pid": pid, "did": did, "cid": cid, "sid": sid,
                     "status": status, "reason": reason, "note": note,
-                    "cr": note if status == "cancelled" else None,
+                    "cr": note if status == "CANCELLED" else None,
                 },
             )
             # Mark slot booked if status is booked

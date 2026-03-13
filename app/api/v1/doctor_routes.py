@@ -62,7 +62,7 @@ async def update_own_doctor_profile(
 @router.get("/appointments", response_model=List[AppointmentResponse])
 async def get_own_doctor_appointments(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["DOCTOR"])),
 ):

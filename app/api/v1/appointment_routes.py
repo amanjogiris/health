@@ -9,21 +9,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_user, require_role, require_roles
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentResponse
+from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentResponse, BookingResponse
 from app.schemas.pagination import PaginatedResponse
 from app.services.appointment_service import AppointmentService
+from app.utils.exceptions import AppException
 
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
 
-@router.post("/book", response_model=AppointmentResponse, status_code=201)
+@router.post("/book", response_model=BookingResponse, status_code=200)
 async def book_appointment(
     payload: AppointmentBook,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["PATIENT", "ADMIN", "SUPER_ADMIN"])),
 ):
     """Patient / Admin: book an appointment. Uses row-level locking to prevent double booking."""
-    return await AppointmentService(db).book(payload)
+    try:
+        appt = await AppointmentService(db).book(payload)
+        return BookingResponse(
+            success=True,
+            message="Appointment booked successfully",
+            appointment_id=appt.id,
+            appointment=appt,
+        )
+    except AppException as exc:
+        return BookingResponse(success=False, message=exc.detail)
+    except Exception as exc:  # pragma: no cover
+        return BookingResponse(success=False, message=str(exc))
 
 
 @router.post("/{appointment_id}/cancel", response_model=AppointmentResponse)

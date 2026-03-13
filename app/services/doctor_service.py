@@ -154,21 +154,46 @@ class DoctorService:
     async def get_appointments_by_user(
         self, user_id: int, skip: int = 0, limit: int = 100
     ) -> List[AppointmentResponse]:
+        from app.models.appointment import AppointmentSlot
+        from app.models.clinic import Clinic
+        from app.models.patient import Patient
+
         doctor = await self._repo.get_by_user_id(user_id)
         if doctor is None:
             raise NotFoundError("Doctor profile")
         data = await self._appt_repo.list_by_doctor(doctor.id, skip, limit)
-        # Batch-load patient names
+
+        # Batch-load patient names: appointment.patient_id references Patient.id (not User.id)
         patient_ids = list({a.patient_id for a in data})
         if patient_ids:
-            result = await self.db.execute(select(User).where(User.id.in_(patient_ids)))
-            user_map = {u.id: u.name for u in result.scalars().all()}
+            # Join Patient → User to resolve the correct name
+            result = await self.db.execute(
+                select(Patient.id, User.name)
+                .join(User, Patient.user_id == User.id)
+                .where(Patient.id.in_(patient_ids))
+            )
+            user_map = {pid: uname for pid, uname in result.all()}
         else:
             user_map = {}
+
+        # Batch-load slot start times for slot_time enrichment
+        slot_ids = list({a.slot_id for a in data})
+        if slot_ids:
+            slot_result = await self.db.execute(
+                select(AppointmentSlot.id, AppointmentSlot.start_time)
+                .where(AppointmentSlot.id.in_(slot_ids))
+            )
+            slot_map = {sid: st for sid, st in slot_result.all()}
+        else:
+            slot_map = {}
+
         responses = []
         for a in data:
             r = AppointmentResponse.model_validate(a)
             r.patient_name = user_map.get(a.patient_id)
+            st = slot_map.get(a.slot_id)
+            r.slot_time = st.isoformat() if st else None
+            r.clinic_name = None  # doctor already knows their clinic; leave blank
             responses.append(r)
         return responses
 

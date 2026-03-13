@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AppointmentBook(BaseModel):
@@ -31,7 +31,35 @@ class AppointmentResponse(BaseModel):
     cancelled_at: Optional[datetime] = None
     cancelled_reason: Optional[str] = None
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # Enriched join fields (populated by service layer)
     patient_name: Optional[str] = None
+    doctor_name: Optional[str] = None
+    clinic_name: Optional[str] = None
+    slot_time: Optional[str] = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalise_status(cls, v: object) -> str:
+        """Return the *value* string for enum members; lowercase otherwise.
+
+        The DB stores UPPERCASE enum labels ('BOOKED', 'CANCELLED', …).
+        SQLAlchemy maps these to the Python ``AppointmentStatus`` enum member
+        whose .value is lowercase ('booked', 'cancelled', …).
+        We always expose the lowercase .value so the frontend status-config
+        lookup works consistently.
+        """
+        if hasattr(v, "value"):
+            return str(v.value).lower()
+        return str(v).lower()
 
     class Config:
         from_attributes = True
+
+
+class BookingResponse(BaseModel):
+    """Uniform envelope returned by the /book endpoint."""
+    success: bool
+    message: str
+    appointment_id: Optional[int] = None
+    appointment: Optional[AppointmentResponse] = None

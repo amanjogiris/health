@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from app.models.appointment import Appointment, AppointmentStatus
+from app.models.appointment import Appointment, AppointmentSlot, AppointmentStatus
+from app.models.clinic import Clinic
+from app.models.doctor import Doctor
 from app.models.patient import Patient
 from app.models.user import User, UserRole
 from app.repositories.appointment_repository import AppointmentRepository
@@ -140,46 +143,83 @@ class AppointmentService:
         search: Optional[str] = None,
         status: Optional[str] = None,
     ) -> PaginatedResponse[AppointmentResponse]:
-        base_filters = [Appointment.is_active == True]
-        if status and status.lower() != 'all':
-            from sqlalchemy import cast, String
-            base_filters.append(cast(Appointment.status, String) == status.upper())
+        from sqlalchemy import cast, String
+
+        # Two aliased joins to the users table (patient's user vs doctor's user)
+        PatientUser = aliased(User)
+        DoctorUser = aliased(User)
+
+        # ── Common WHERE conditions ────────────────────────────────────────────
+        conditions = [Appointment.is_active == True]
+
+        if status and status.lower() != "all":
+            # The DB enum stores UPPERCASE labels ('BOOKED', 'CANCELLED', …).
+            # Cast status column to string and compare with the uppercase version
+            # of the frontend value so the filter always matches.
+            conditions.append(
+                cast(Appointment.status, String) == status.upper()
+            )
+
         if search:
             q = f"%{search}%"
-            from sqlalchemy import or_, cast, String
-            base_filters.append(
+            conditions.append(
                 or_(
-                    User.name.ilike(q),
+                    PatientUser.name.ilike(q),
+                    DoctorUser.name.ilike(q),
+                    Clinic.name.ilike(q),
                     Appointment.reason_for_visit.ilike(q),
-                    cast(Appointment.status, String).ilike(q),
                 )
             )
 
-        join_stmt = (
-            select(Appointment)
+        # ── COUNT – explicit joins, anchored from Appointment ─────────────────
+        count_stmt = (
+            select(func.count(Appointment.id))
+            .select_from(Appointment)
             .join(Patient, Appointment.patient_id == Patient.id)
-            .join(User, Patient.user_id == User.id)
-            .where(*base_filters)
+            .join(PatientUser, Patient.user_id == PatientUser.id)
+            .join(Doctor, Appointment.doctor_id == Doctor.id)
+            .join(DoctorUser, Doctor.user_id == DoctorUser.id)
+            .join(Clinic, Appointment.clinic_id == Clinic.id)
+            .where(*conditions)
         )
-
-        count_result = await self.db.execute(
-            select(func.count()).select_from(join_stmt.subquery())
-        )
+        count_result = await self.db.execute(count_stmt)
         total = count_result.scalar_one()
 
-        data_result = await self.db.execute(
-            select(Appointment, User.name)
+        # ── DATA – same joins + optional slot outer-join, all columns inline ──
+        # Keeping AppointmentSlot.start_time in the SELECT (not add_columns) and
+        # select_from(Appointment) prevents SQLAlchemy from auto-adding aliased
+        # entities as implicit cross-join FROM tables.
+        data_stmt = (
+            select(
+                Appointment,
+                PatientUser.name.label("patient_name"),
+                DoctorUser.name.label("doctor_name"),
+                Clinic.name.label("clinic_name"),
+                AppointmentSlot.start_time.label("slot_start"),
+            )
+            .select_from(Appointment)
             .join(Patient, Appointment.patient_id == Patient.id)
-            .join(User, Patient.user_id == User.id)
-            .where(*base_filters)
+            .join(PatientUser, Patient.user_id == PatientUser.id)
+            .join(Doctor, Appointment.doctor_id == Doctor.id)
+            .join(DoctorUser, Doctor.user_id == DoctorUser.id)
+            .join(Clinic, Appointment.clinic_id == Clinic.id)
+            .outerjoin(AppointmentSlot, Appointment.slot_id == AppointmentSlot.id)
+            .where(*conditions)
             .order_by(Appointment.created_at.desc())
             .offset(skip)
             .limit(limit)
         )
+        data_result = await self.db.execute(data_stmt)
         rows = data_result.all()
-        out = []
-        for appt, pname in rows:
+
+        out: List[AppointmentResponse] = []
+        for row in rows:
+            appt: Appointment = row[0]
             resp = AppointmentResponse.model_validate(appt)
-            resp.patient_name = pname
+            resp.patient_name = row.patient_name
+            resp.doctor_name = row.doctor_name
+            resp.clinic_name = row.clinic_name
+            resp.slot_time = row.slot_start.isoformat() if row.slot_start else None
             out.append(resp)
+
         return PaginatedResponse(items=out, total=total, skip=skip, limit=limit)
