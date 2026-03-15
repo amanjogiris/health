@@ -15,7 +15,7 @@ from app.models.user import User, UserRole
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.doctor_repository import DoctorRepository
 from app.repositories.slot_repository import SlotRepository
-from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentResponse
+from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentNotesUpdate, AppointmentResponse
 from app.schemas.pagination import PaginatedResponse
 from app.utils.exceptions import BusinessRuleError, ForbiddenError, NotFoundError
 
@@ -109,6 +109,26 @@ class AppointmentService:
             await self._slot_repo.update(slot.id, booked_count=new_count, is_booked=False)
 
         return AppointmentResponse.model_validate(cancelled)
+
+    async def update_notes(
+        self, appointment_id: int, payload: AppointmentNotesUpdate, current_user: User
+    ) -> AppointmentResponse:
+        """Doctor (or admin) updates the prescription / notes on an appointment."""
+        appt = await self._repo.get_by_id(appointment_id)
+        if appt is None:
+            raise NotFoundError("Appointment")
+
+        is_admin = current_user.role.value in ("admin", "super_admin")
+        if not is_admin:
+            # Only the doctor assigned to this appointment may edit notes
+            doctor = await self._doctor_repo.get_by_user_id(current_user.id)
+            if doctor is None or appt.doctor_id != doctor.id:
+                raise ForbiddenError("You are not authorised to update notes for this appointment.")
+
+        updated = await self._repo.update_fields(appointment_id, notes=payload.notes)
+        if updated is None:
+            raise NotFoundError("Appointment")
+        return AppointmentResponse.model_validate(updated)
 
     async def get(self, appointment_id: int) -> AppointmentResponse:
         appt = await self._repo.get_by_id(appointment_id)

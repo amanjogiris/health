@@ -19,6 +19,11 @@ class AppointmentCancel(BaseModel):
     cancelled_reason: str = Field(..., min_length=1, max_length=500)
 
 
+class AppointmentNotesUpdate(BaseModel):
+    """Payload for a doctor to update prescription / notes on an appointment."""
+    notes: str = Field(..., min_length=0, max_length=5000)
+
+
 class AppointmentResponse(BaseModel):
     id: int
     patient_id: int

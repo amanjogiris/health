@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_user, require_role, require_roles
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentResponse, BookingResponse
+from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentNotesUpdate, AppointmentResponse, BookingResponse
 from app.schemas.pagination import PaginatedResponse
 from app.services.appointment_service import AppointmentService
 from app.utils.exceptions import AppException
@@ -36,6 +36,17 @@ async def book_appointment(
         return BookingResponse(success=False, message=exc.detail)
     except Exception as exc:  # pragma: no cover
         return BookingResponse(success=False, message=str(exc))
+
+
+@router.patch("/{appointment_id}/notes", response_model=AppointmentResponse)
+async def update_appointment_notes(
+    appointment_id: int,
+    payload: AppointmentNotesUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["DOCTOR", "ADMIN", "SUPER_ADMIN"])),
+):
+    """Doctor / Admin: update prescription / notes for an appointment."""
+    return await AppointmentService(db).update_notes(appointment_id, payload, current_user)
 
 
 @router.post("/{appointment_id}/cancel", response_model=AppointmentResponse)

@@ -53,6 +53,19 @@ class AppointmentRepository:
         await self.db.refresh(appt)
         return appt
 
+    async def update_fields(self, appointment_id: int, **kwargs) -> Optional[Appointment]:
+        """Like update() but allows explicitly setting a field to None or empty string."""
+        appt = await self.get_by_id(appointment_id)
+        if appt is None:
+            return None
+        for k, v in kwargs.items():
+            if hasattr(appt, k):
+                setattr(appt, k, v)
+        self.db.add(appt)
+        await self.db.commit()
+        await self.db.refresh(appt)
+        return appt
+
     async def cancel(self, appointment_id: int, reason: str) -> Optional[Appointment]:
         appt = await self.get_by_id(appointment_id)
         if appt is None:
