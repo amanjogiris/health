@@ -76,6 +76,23 @@ async def get_doctor_availability(doctor_id: int, db: AsyncSession = Depends(get
     return await DoctorService(db).get_availability(doctor_id)
 
 
+@router.post("/{doctor_id}/slots/generate", status_code=200)
+async def generate_doctor_slots(
+    doctor_id: int,
+    days_ahead: int = Query(60, ge=1, le=365, description="How many days ahead to generate slots for"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(["ADMIN", "SUPER_ADMIN"])),
+):
+    """Admin / Super-Admin: generate (or fill gaps in) appointment slots for a doctor.
+
+    Uses the doctor\u2019s stored weekly availability.  Idempotent \u2013 already-existing
+    slots at the same start_time are skipped.  Set *days_ahead* up to 365 to
+    cover as many weeks into the future as needed.
+    """
+    count = await DoctorService(db).generate_slots_for_doctor(doctor_id, days_ahead)
+    return {"generated": count, "days_ahead": days_ahead}
+
+
 @router.get("/{doctor_id}", response_model=DoctorResponse)
 async def get_doctor(doctor_id: int, db: AsyncSession = Depends(get_db)):
     """Public: get doctor by ID (includes availability)."""

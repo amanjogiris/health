@@ -51,7 +51,7 @@ class DoctorService:
         clinic_id: int,
         duration_minutes: int,
         availability_inputs: List[AvailabilityInput],
-        days_ahead: int = 7,
+        days_ahead: int = 60,
     ) -> int:
         """Generate appointment slots for the next *days_ahead* days.
 
@@ -135,6 +135,36 @@ class DoctorService:
         avail = await self._avail_repo.get_by_doctor(doctor_id)
         avail_resp = [AvailabilityResponse.model_validate(a) for a in avail]
         return self._build_response(doctor, availability=avail_resp)
+
+    async def generate_slots_for_doctor(
+        self, doctor_id: int, days_ahead: int = 60
+    ) -> int:
+        """Public method: (re-)generate slots for a doctor for the next *days_ahead* days.
+
+        Idempotent — existing slots at the same start_time are skipped.
+        """
+        doctor = await self._repo.get_by_id(doctor_id)
+        if doctor is None:
+            raise NotFoundError("Doctor")
+        avail = await self._avail_repo.get_by_doctor(doctor_id)
+        if not avail:
+            return 0
+        # Convert DB records → AvailabilityInput
+        avail_inputs = [
+            AvailabilityInput(
+                day_of_week=a.day_of_week,
+                start_time=a.start_time.strftime("%H:%M"),
+                end_time=a.end_time.strftime("%H:%M"),
+            )
+            for a in avail
+        ]
+        return await self._generate_slots(
+            doctor_id=doctor_id,
+            clinic_id=doctor.clinic_id,
+            duration_minutes=doctor.consultation_duration_minutes,
+            availability_inputs=avail_inputs,
+            days_ahead=days_ahead,
+        )
 
     async def get_profile_by_user(self, user_id: int) -> DoctorResponse:
         doctor = await self._repo.get_by_user_id(user_id)
