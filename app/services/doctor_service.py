@@ -163,18 +163,29 @@ class DoctorService:
             raise NotFoundError("Doctor profile")
         data = await self._appt_repo.list_by_doctor(doctor.id, skip, limit)
 
-        # Batch-load patient names: appointment.patient_id references Patient.id (not User.id)
+        # Batch-load patient names.
+        # patient_id in appointments may be Patient.id (admin-booked) or User.id
+        # (patient self-booked via auth token).  Resolve both cases.
         patient_ids = list({a.patient_id for a in data})
+        user_map: dict[int, str] = {}
         if patient_ids:
-            # Join Patient → User to resolve the correct name
+            # Pass 1: treat patient_id as Patient.id → join to User via patient.user_id
             result = await self.db.execute(
                 select(Patient.id, User.name)
                 .join(User, Patient.user_id == User.id)
                 .where(Patient.id.in_(patient_ids))
             )
-            user_map = {pid: uname for pid, uname in result.all()}
-        else:
-            user_map = {}
+            user_map = {pid: uname for pid, uname in result.all() if uname}
+
+            # Pass 2: for IDs that didn't resolve, treat patient_id as User.id directly
+            unresolved = [pid for pid in patient_ids if pid not in user_map]
+            if unresolved:
+                fallback = await self.db.execute(
+                    select(User.id, User.name).where(User.id.in_(unresolved))
+                )
+                for uid, uname in fallback.all():
+                    if uname:
+                        user_map[uid] = uname
 
         # Batch-load slot start times for slot_time enrichment
         slot_ids = list({a.slot_id for a in data})
