@@ -1,6 +1,7 @@
 """Doctor routes."""
 from __future__ import annotations
 
+import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -79,18 +80,39 @@ async def get_doctor_availability(doctor_id: int, db: AsyncSession = Depends(get
 @router.post("/{doctor_id}/slots/generate", status_code=200)
 async def generate_doctor_slots(
     doctor_id: int,
-    days_ahead: int = Query(60, ge=1, le=365, description="How many days ahead to generate slots for"),
+    days_ahead: int = Query(60, ge=1, le=365, description="Days ahead (used when date_from/date_to are not set)"),
+    date_from: Optional[datetime.date] = Query(None, description="Generate from this date (inclusive). Overrides days_ahead."),
+    date_to: Optional[datetime.date] = Query(None, description="Generate up to this date (exclusive). Must be used with date_from."),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_role(["ADMIN", "SUPER_ADMIN"])),
 ):
     """Admin / Super-Admin: generate (or fill gaps in) appointment slots for a doctor.
 
-    Uses the doctor\u2019s stored weekly availability.  Idempotent \u2013 already-existing
-    slots at the same start_time are skipped.  Set *days_ahead* up to 365 to
-    cover as many weeks into the future as needed.
+    Uses the doctor's stored weekly availability.  Idempotent – already-existing
+    slots at the same start_time are skipped.
+
+    **Option A – rolling window (default):**
+    ```
+    POST /api/v1/doctors/3/slots/generate?days_ahead=90
+    ```
+
+    **Option B – specific date range (bonus feature):**
+    ```
+    POST /api/v1/doctors/3/slots/generate?date_from=2026-04-01&date_to=2026-04-30
+    ```
     """
-    count = await DoctorService(db).generate_slots_for_doctor(doctor_id, days_ahead)
-    return {"generated": count, "days_ahead": days_ahead}
+    count = await DoctorService(db).generate_slots_for_doctor(
+        doctor_id,
+        days_ahead=days_ahead,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return {
+        "generated": count,
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "days_ahead": days_ahead if not date_from else None,
+    }
 
 
 @router.get("/{doctor_id}", response_model=DoctorResponse)

@@ -52,24 +52,33 @@ class DoctorService:
         duration_minutes: int,
         availability_inputs: List[AvailabilityInput],
         days_ahead: int = 60,
+        date_from: Optional[datetime.date] = None,
+        date_to: Optional[datetime.date] = None,
     ) -> int:
-        """Generate appointment slots for the next *days_ahead* days.
+        """Generate appointment slots for a date window.
 
         Rules:
         - Each slot = duration_minutes long.
         - Slots follow doctor's weekly availability.
         - Duplicate start_times are skipped (idempotent).
         - Returns the number of newly created slots.
+
+        When ``date_from`` / ``date_to`` are supplied they override the default
+        "today → today + days_ahead" window.
         """
         today = datetime.date.today()
-        date_from = datetime.datetime.combine(today, datetime.time.min)
-        date_to = datetime.datetime.combine(today + datetime.timedelta(days=days_ahead), datetime.time.min)
+        start_date = date_from or today
+        end_date = date_to or (today + datetime.timedelta(days=days_ahead))
 
-        existing = await self._slot_repo.get_existing_start_times(doctor_id, date_from, date_to)
+        dt_from = datetime.datetime.combine(start_date, datetime.time.min)
+        dt_to = datetime.datetime.combine(end_date, datetime.time.min)
 
+        existing = await self._slot_repo.get_existing_start_times(doctor_id, dt_from, dt_to)
+
+        total_days = (end_date - start_date).days
         slots_to_add: List[dict] = []
-        for day_offset in range(days_ahead):
-            current_date = today + datetime.timedelta(days=day_offset)
+        for day_offset in range(total_days):
+            current_date = start_date + datetime.timedelta(days=day_offset)
             current_dow = current_date.weekday()  # 0 = Monday
 
             for avail in availability_inputs:
@@ -92,6 +101,7 @@ class DoctorService:
                             {
                                 "doctor_id": doctor_id,
                                 "clinic_id": clinic_id,
+                                "date": current_date,
                                 "start_time": slot_start,
                                 "end_time": slot_end,
                             }
@@ -137,11 +147,18 @@ class DoctorService:
         return self._build_response(doctor, availability=avail_resp)
 
     async def generate_slots_for_doctor(
-        self, doctor_id: int, days_ahead: int = 60
+        self,
+        doctor_id: int,
+        days_ahead: int = 60,
+        date_from: Optional[datetime.date] = None,
+        date_to: Optional[datetime.date] = None,
     ) -> int:
-        """Public method: (re-)generate slots for a doctor for the next *days_ahead* days.
+        """Public method: (re-)generate slots for a doctor.
 
-        Idempotent — existing slots at the same start_time are skipped.
+        - If ``date_from`` / ``date_to`` are provided the generation is limited to that
+          specific date window (useful for "regenerate for a holiday period").
+        - Otherwise falls back to ``today → today + days_ahead``.
+        - Idempotent — existing slots at the same start_time are skipped.
         """
         doctor = await self._repo.get_by_id(doctor_id)
         if doctor is None:
@@ -164,6 +181,8 @@ class DoctorService:
             duration_minutes=doctor.consultation_duration_minutes,
             availability_inputs=avail_inputs,
             days_ahead=days_ahead,
+            date_from=date_from,
+            date_to=date_to,
         )
 
     async def get_profile_by_user(self, user_id: int) -> DoctorResponse:

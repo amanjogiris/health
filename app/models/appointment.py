@@ -5,7 +5,7 @@ import enum
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from sqlalchemy import Boolean, Column, DateTime, Enum as SAEnum, Index, Integer, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, Enum as SAEnum, Index, Integer, Text
 
 from app.db.base import Base
 from app.models.mixins import SoftDeleteMixin, TimestampMixin
@@ -23,6 +23,15 @@ class AppointmentStatus(enum.Enum):
     REJECTED = "rejected"
 
 
+class SlotStatus(enum.Enum):
+    """Lifecycle status of an appointment slot."""
+
+    AVAILABLE = "available"
+    BOOKED = "booked"
+    CANCELLED = "cancelled"
+    BLOCKED = "blocked"
+
+
 class AppointmentSlot(Base, TimestampMixin, SoftDeleteMixin):
     """Appointment slot model for doctor availability."""
 
@@ -31,13 +40,22 @@ class AppointmentSlot(Base, TimestampMixin, SoftDeleteMixin):
         Index("ix_slots_doctor_id", "doctor_id"),
         Index("ix_slots_clinic_id", "clinic_id"),
         Index("ix_slots_start_time", "start_time"),
+        Index("ix_slots_date", "date"),
     )
 
     id: int = Column(Integer, primary_key=True)
     doctor_id: int = Column(Integer, nullable=False, index=True)
     clinic_id: int = Column(Integer, nullable=False, index=True)
+    # Denormalised calendar date for fast date-only filtering
+    date: Optional[str] = Column(Date, nullable=True, index=True)
     start_time: datetime = Column(DateTime(timezone=True), nullable=False, index=True)
     end_time: datetime = Column(DateTime(timezone=True), nullable=False)
+    status: SlotStatus = Column(
+        SAEnum(SlotStatus, name="slot_status"),
+        nullable=False,
+        default=SlotStatus.AVAILABLE,
+        server_default="available",
+    )
     is_booked: bool = Column(Boolean, default=False, nullable=False)
     capacity: int = Column(Integer, default=1, nullable=False)
     booked_count: int = Column(Integer, default=0, nullable=False)
@@ -50,9 +68,12 @@ class AppointmentSlot(Base, TimestampMixin, SoftDeleteMixin):
             "id": self.id,
             "doctor_id": self.doctor_id,
             "clinic_id": self.clinic_id,
+            "date": self.date,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
+            "status": self.status.value if self.status else None,
             "is_booked": self.is_booked,
+            "is_active": self.is_active,
             "capacity": self.capacity,
             "booked_count": self.booked_count,
             "available_slots": self.capacity - self.booked_count,

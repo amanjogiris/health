@@ -3,7 +3,7 @@ from .user import User, UserRole
 from .patient import Patient
 from .clinic import Clinic
 from .doctor import Doctor, DoctorAvailability
-from .appointment import AppointmentStatus, AppointmentSlot, Appointment
+from .appointment import AppointmentStatus, AppointmentSlot, Appointment, SlotStatus
 
 __all__ = [
     "TimestampMixin",
@@ -15,6 +15,7 @@ __all__ = [
     "Doctor",
     "DoctorAvailability",
     "AppointmentStatus",
+    "SlotStatus",
     "AppointmentSlot",
     "Appointment",
 ]

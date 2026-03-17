@@ -3,7 +3,7 @@ from app.schemas.user_schema import UserRegister, UserLogin, UserResponse, Token
 from app.schemas.patient_schema import PatientUpdate, PatientResponse
 from app.schemas.doctor_schema import DoctorCreate, DoctorUpdate, DoctorResponse
 from app.schemas.clinic_schema import ClinicCreate, ClinicUpdate, ClinicResponse
-from app.schemas.slot_schema import SlotCreate, SlotUpdate, SlotResponse
+from app.schemas.slot_schema import SlotCreate, SlotUpdate, SlotResponse, SlotToggleResponse, SlotGenerateRange
 from app.schemas.appointment_schema import AppointmentBook, AppointmentCancel, AppointmentResponse
 
 __all__ = [
@@ -11,6 +11,6 @@ __all__ = [
     "PatientUpdate", "PatientResponse",
     "DoctorCreate", "DoctorUpdate", "DoctorResponse",
     "ClinicCreate", "ClinicUpdate", "ClinicResponse",
-    "SlotCreate", "SlotUpdate", "SlotResponse",
+    "SlotCreate", "SlotUpdate", "SlotResponse", "SlotToggleResponse", "SlotGenerateRange",
     "AppointmentBook", "AppointmentCancel", "AppointmentResponse",
 ]
