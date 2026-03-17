@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.appointment import AppointmentSlot
@@ -103,6 +103,9 @@ class SlotRepository:
         )
         if not include_all:
             stmt = stmt.where(AppointmentSlot.booked_count < AppointmentSlot.capacity)
+            # Exclude past slots unless the caller explicitly supplies date_from
+            if date_from is None:
+                stmt = stmt.where(AppointmentSlot.start_time >= func.now())
         if doctor_id:
             stmt = stmt.where(AppointmentSlot.doctor_id == doctor_id)
         if clinic_id:
@@ -111,7 +114,7 @@ class SlotRepository:
             stmt = stmt.where(AppointmentSlot.start_time >= date_from)
         if date_to:
             stmt = stmt.where(AppointmentSlot.start_time <= date_to)
-        stmt = stmt.offset(skip).limit(limit)
+        stmt = stmt.order_by(AppointmentSlot.start_time.asc()).offset(skip).limit(limit)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
