@@ -17,6 +17,21 @@ from app.services.patient_service import PatientService
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
 
+@router.get("/me/appointments", response_model=List[AppointmentResponse])
+async def my_appointments(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["PATIENT"])),
+):
+    """Patient: list own appointments by resolving the patient profile from the JWT."""
+    service = PatientService(db)
+    patient = await service._repo.get_by_user_id(current_user.id)
+    if patient is None:
+        return []
+    return await service.get_appointments(patient.id, skip, limit)
+
+
 @router.get("", response_model=PaginatedResponse[PatientResponse])
 async def list_patients(
     skip: int = Query(0, ge=0),
