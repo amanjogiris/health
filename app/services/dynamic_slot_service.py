@@ -279,6 +279,34 @@ class DynamicSlotService:
         )
         return (getattr(avail, "slot_interval", None) or 15) if avail else 15
 
+    async def _get_leave_windows_for_date(
+        self,
+        doctor_id: int,
+        date: datetime.date,
+        avail_start: datetime.datetime,
+        avail_end: datetime.datetime,
+    ) -> List[tuple]:
+        """Return a list of (start, end) UTC datetime tuples representing leave blocks.
+
+        Full-day leave maps to the full availability window; partial leave uses
+        the specified start/end times combined with the requested date.
+        """
+        leaves = await self._leave_repo.get_by_doctor_and_date(doctor_id, date)
+        windows: List[tuple] = []
+        for leave in leaves:
+            if leave.is_full_day:
+                windows.append((avail_start, avail_end))
+            else:
+                if leave.start_time and leave.end_time:
+                    lw_start = datetime.datetime.combine(
+                        date, leave.start_time, tzinfo=datetime.timezone.utc
+                    )
+                    lw_end = datetime.datetime.combine(
+                        date, leave.end_time, tzinfo=datetime.timezone.utc
+                    )
+                    windows.append((lw_start, lw_end))
+        return windows
+
 
 # ── Timezone helper ───────────────────────────────────────────────────────────
 
