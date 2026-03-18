@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.factories.fixed_interval import FixedIntervalSlotFactory
 from app.models.doctor import DoctorAvailability
 from app.repositories.availability_repository import AvailabilityRepository
+from app.repositories.doctor_leave_repository import DoctorLeaveRepository
 from app.repositories.doctor_repository import DoctorRepository
 from app.repositories.dynamic_appointment_repository import DynamicAppointmentRepository
 from app.schemas.dynamic_slot_schema import (
@@ -44,6 +45,7 @@ class DynamicSlotService:
         self._appt_repo = DynamicAppointmentRepository(db)
         self._avail_repo = AvailabilityRepository(db)
         self._doctor_repo = DoctorRepository(db)
+        self._leave_repo = DoctorLeaveRepository(db)
 
     # ── Slot generation ───────────────────────────────────────────────────────
 
@@ -101,7 +103,14 @@ class DynamicSlotService:
         window_end = datetime.datetime.combine(
             date, availability.end_time, tzinfo=datetime.timezone.utc
         )
-        raw_slots = factory.generate_slots(window_start, window_end, booked_windows)
+
+        # 4b. Doctor leave windows → merge into blocked windows
+        leave_windows = await self._get_leave_windows_for_date(
+            doctor_id, date, window_start, window_end
+        )
+        all_blocked = booked_windows + leave_windows
+
+        raw_slots = factory.generate_slots(window_start, window_end, all_blocked)
 
         # 5. Build response
         if only_available:
@@ -173,6 +182,17 @@ class DynamicSlotService:
                     f"({availability.start_time.strftime('%H:%M')} – "
                     f"{availability.end_time.strftime('%H:%M')})."
                 )
+
+            # Leave window check – reject if doctor is on leave
+            leave_windows = await self._get_leave_windows_for_date(
+                payload.doctor_id, date, window_start, window_end
+            )
+            for lw_start, lw_end in leave_windows:
+                if not (end_time <= lw_start or start_time >= lw_end):
+                    raise BusinessRuleError(
+                        "The doctor is on leave during the requested time. "
+                        "Please choose a different date or time."
+                    )
 
             # Application-level conflict check (before acquiring DB lock)
             existing_windows = await self._appt_repo.get_booked_windows_for_date(

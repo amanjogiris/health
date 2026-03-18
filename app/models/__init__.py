@@ -18,4 +18,5 @@ __all__ = [
     "SlotStatus",
     "AppointmentSlot",
     "Appointment",
+    "DoctorLeave",
 ]

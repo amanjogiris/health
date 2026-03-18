@@ -9,6 +9,7 @@ from app.api.v1 import (
     slot_routes,
     appointment_routes,
     admin_routes,
+    leave_routes,
 )
 from app.api.v1.dynamic_slot_routes import appt_dynamic_router, doctor_dynamic_router
 
@@ -23,6 +24,7 @@ v1_router.include_router(slot_routes.router)
 v1_router.include_router(appointment_routes.router)
 v1_router.include_router(appt_dynamic_router)     # POST /appointments/dynamic
 v1_router.include_router(admin_routes.router)
+v1_router.include_router(leave_routes.router)  # POST/GET/DELETE /doctors/{id}/leaves
 
 __all__ = ["v1_router"]
 
