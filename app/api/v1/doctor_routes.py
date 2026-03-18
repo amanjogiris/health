@@ -77,6 +77,69 @@ async def get_doctor_availability(doctor_id: int, db: AsyncSession = Depends(get
     return await DoctorService(db).get_availability(doctor_id)
 
 
+@router.put("/availability", response_model=List[AvailabilityResponse])
+async def set_own_availability(
+    availability: List[AvailabilityInput],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["DOCTOR"])),
+):
+    """Doctor: replace own weekly availability and regenerate slots.
+
+    Works exactly like the admin ``PUT /{doctor_id}/availability`` endpoint
+    but automatically scopes to the authenticated doctor's profile.
+
+    **Sample request:**
+    ```json
+    [
+      {"day_of_week": 0, "start_time": "09:00", "end_time": "13:00"},
+      {"day_of_week": 2, "start_time": "14:00", "end_time": "18:00"}
+    ]
+    ```
+    """
+    service = DoctorService(db)
+    doctor = await service.get_profile_by_user(current_user.id)
+    return await service.set_availability(doctor.id, availability)
+
+
+@router.post("/slots/generate", status_code=200)
+async def generate_own_slots(
+    days_ahead: int = Query(60, ge=1, le=365, description="Days ahead (used when date_from/date_to are not set)"),
+    date_from: Optional[datetime.date] = Query(None, description="Generate from this date (inclusive). Overrides days_ahead."),
+    date_to: Optional[datetime.date] = Query(None, description="Generate up to this date (exclusive). Must be used with date_from."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["DOCTOR"])),
+):
+    """Doctor: generate (or fill gaps in) own appointment slots.
+
+    Uses the doctor's stored weekly availability.  Idempotent – already-existing
+    slots at the same start_time are skipped.
+
+    **Option A – rolling window (default):**
+    ```
+    POST /api/v1/doctors/slots/generate?days_ahead=90
+    ```
+
+    **Option B – specific date range:**
+    ```
+    POST /api/v1/doctors/slots/generate?date_from=2026-04-01&date_to=2026-04-30
+    ```
+    """
+    service = DoctorService(db)
+    doctor = await service.get_profile_by_user(current_user.id)
+    count = await service.generate_slots_for_doctor(
+        doctor.id,
+        days_ahead=days_ahead,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return {
+        "generated": count,
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "days_ahead": days_ahead if not date_from else None,
+    }
+
+
 @router.post("/{doctor_id}/slots/generate", status_code=200)
 async def generate_doctor_slots(
     doctor_id: int,

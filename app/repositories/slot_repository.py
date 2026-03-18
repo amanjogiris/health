@@ -180,3 +180,26 @@ class SlotRepository:
         result = await self.db.execute(stmt)
         return {row[0] for row in result.all()}
 
+    async def get_active_slots_for_date(
+        self,
+        doctor_id: int,
+        date: dt.date,
+    ) -> List[AppointmentSlot]:
+        """Return all active, non-cancelled manual slots for a doctor on a given date.
+
+        Used by the dynamic-slot service to surface one-off manually created
+        slots to patients even on days that have no recurring availability schedule.
+        """
+        stmt = (
+            select(AppointmentSlot)
+            .where(
+                AppointmentSlot.doctor_id == doctor_id,
+                AppointmentSlot.is_active == True,
+                AppointmentSlot.status != SlotStatus.CANCELLED,
+                AppointmentSlot.date == date,
+            )
+            .order_by(AppointmentSlot.start_time.asc())
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+

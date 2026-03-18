@@ -23,11 +23,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.factories.fixed_interval import FixedIntervalSlotFactory
+from app.models.appointment import SlotStatus
 from app.models.doctor import DoctorAvailability
 from app.repositories.availability_repository import AvailabilityRepository
 from app.repositories.doctor_leave_repository import DoctorLeaveRepository
 from app.repositories.doctor_repository import DoctorRepository
 from app.repositories.dynamic_appointment_repository import DynamicAppointmentRepository
+from app.repositories.slot_repository import SlotRepository
 from app.schemas.dynamic_slot_schema import (
     DoctorSlotsResponse,
     DynamicAppointmentResponse,
@@ -46,6 +48,7 @@ class DynamicSlotService:
         self._avail_repo = AvailabilityRepository(db)
         self._doctor_repo = DoctorRepository(db)
         self._leave_repo = DoctorLeaveRepository(db)
+        self._slot_repo = SlotRepository(db)
 
     # ── Slot generation ───────────────────────────────────────────────────────
 
@@ -82,11 +85,45 @@ class DynamicSlotService:
         # 2. Availability for this day-of-week (0=Mon … 6=Sun)
         day_of_week = date.weekday()
         availability = await self._get_availability_for_day(doctor_id, day_of_week)
-        if availability is None:
+
+        # 2b. Manual (one-off) slots created by the doctor for this specific date
+        manual_slots = await self._slot_repo.get_active_slots_for_date(doctor_id, date)
+
+        if availability is None and not manual_slots:
             raise BusinessRuleError(
                 f"Doctor {doctor_id} has no availability configured for "
                 f"{date.strftime('%A')} (day_of_week={day_of_week})."
             )
+
+        # ── Case A: no recurring schedule → build response from manual slots only ──
+        if availability is None:
+            slot_responses = [
+                DynamicSlotResponse(
+                    start_time=_ensure_utc(s.start_time),
+                    end_time=_ensure_utc(s.end_time),
+                    is_available=(
+                        s.status == SlotStatus.AVAILABLE
+                        and s.booked_count < s.capacity
+                    ),
+                    duration_minutes=int(
+                        (_ensure_utc(s.end_time) - _ensure_utc(s.start_time)).total_seconds() // 60
+                    ),
+                )
+                for s in manual_slots
+            ]
+            if only_available:
+                slot_responses = [s for s in slot_responses if s.is_available]
+            first_duration = slot_responses[0].duration_minutes if slot_responses else 0
+            return DoctorSlotsResponse(
+                doctor_id=doctor_id,
+                date=date,
+                slot_interval_minutes=first_duration,
+                total_slots=len(slot_responses),
+                available_slots=sum(1 for s in slot_responses if s.is_available),
+                slots=slot_responses,
+            )
+
+        # ── Case B: recurring schedule exists → generate schedule slots ──
 
         # 3. Existing bookings → (start, end) pairs
         booked_windows = await self._appt_repo.get_booked_windows_for_date(
@@ -112,11 +149,41 @@ class DynamicSlotService:
 
         raw_slots = factory.generate_slots(window_start, window_end, all_blocked)
 
+        # 4c. Merge manual slots that fall OUTSIDE the schedule window
+        schedule_start = _ensure_utc(datetime.datetime.combine(
+            date, availability.start_time, tzinfo=datetime.timezone.utc
+        ))
+        schedule_end = _ensure_utc(datetime.datetime.combine(
+            date, availability.end_time, tzinfo=datetime.timezone.utc
+        ))
+        extra_manual: List[DynamicSlotResponse] = []
+        for s in manual_slots:
+            s_start = _ensure_utc(s.start_time)
+            s_end = _ensure_utc(s.end_time)
+            # Include manual slot only if it doesn't overlap the generated schedule window
+            if s_end <= schedule_start or s_start >= schedule_end:
+                extra_manual.append(
+                    DynamicSlotResponse(
+                        start_time=s_start,
+                        end_time=s_end,
+                        is_available=(
+                            s.status == SlotStatus.AVAILABLE
+                            and s.booked_count < s.capacity
+                        ),
+                        duration_minutes=int(
+                            (s_end - s_start).total_seconds() // 60
+                        ),
+                    )
+                )
+
         # 5. Build response
         if only_available:
             raw_slots = [s for s in raw_slots if s.is_available]
 
         slot_responses = [DynamicSlotResponse.from_dynamic_slot(s) for s in raw_slots]
+        slot_responses = sorted(
+            slot_responses + extra_manual, key=lambda x: x.start_time
+        )
 
         return DoctorSlotsResponse(
             doctor_id=doctor_id,
