@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from sqlalchemy import Column, Index, Integer, String, Text, Time
+from sqlalchemy import Column, Index, Integer, String, Text, Time, CheckConstraint
 
 from app.db.base import Base
 from app.models.mixins import SoftDeleteMixin, TimestampMixin
@@ -48,11 +48,16 @@ class Doctor(Base, TimestampMixin, SoftDeleteMixin):
 
 
 class DoctorAvailability(Base, TimestampMixin):
-    """Weekly availability rules for a doctor (day-of-week + time window)."""
+    """Weekly availability rules for a doctor (day-of-week + time window).
+
+    ``slot_interval`` defines the granularity of dynamically-generated slots.
+    E.g. ``slot_interval=15`` means each unit slot is 15 minutes long.
+    """
 
     __tablename__ = "doctor_availability"
     __table_args__ = (
         Index("ix_doctor_availability_doctor_id", "doctor_id"),
+        CheckConstraint("slot_interval > 0", name="ck_avail_slot_interval_positive"),
     )
 
     id: int = Column(Integer, primary_key=True)
@@ -61,6 +66,8 @@ class DoctorAvailability(Base, TimestampMixin):
     day_of_week: int = Column(Integer, nullable=False)
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
+    # Minutes per dynamically-generated slot (default matches consultation_duration_minutes)
+    slot_interval: int = Column(Integer, nullable=False, default=15, server_default="15")
 
     def __repr__(self) -> str:
         return (

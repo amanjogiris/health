@@ -360,6 +360,7 @@ class DoctorService:
                 "day_of_week": a.day_of_week,
                 "start_time": _parse_time(a.start_time),
                 "end_time": _parse_time(a.end_time),
+                "slot_interval": getattr(a, "slot_interval", 15) or 15,
             }
             for a in inputs
         ]
@@ -415,6 +416,7 @@ class DoctorService:
                     "day_of_week": a.day_of_week,
                     "start_time": _parse_time(a.start_time),
                     "end_time": _parse_time(a.end_time),
+                    "slot_interval": getattr(a, "slot_interval", 15) or 15,
                 }
                 for a in payload.availability
             ]

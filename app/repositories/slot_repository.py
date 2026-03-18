@@ -121,15 +121,20 @@ class SlotRepository:
         limit: int = 100,
         include_all: bool = False,
     ) -> List[AppointmentSlot]:
-        stmt = select(AppointmentSlot).where(
-            AppointmentSlot.is_active == True,
-        )
+        stmt = select(AppointmentSlot)
+        # Always exclude soft-deleted / deactivated slots unless include_all is set.
+        # include_all is only intended to lift the future-only / available-only / booked-only
+        # restrictions — not to surface records the user explicitly removed.
         if not include_all:
+            stmt = stmt.where(AppointmentSlot.is_active == True)
             stmt = stmt.where(AppointmentSlot.booked_count < AppointmentSlot.capacity)
             stmt = stmt.where(AppointmentSlot.status == SlotStatus.AVAILABLE)
             # Exclude past slots unless the caller explicitly supplies date_from
             if date_from is None:
                 stmt = stmt.where(AppointmentSlot.start_time >= func.now())
+        else:
+            # Even in "include all" mode, hide soft-deleted / deactivated slots.
+            stmt = stmt.where(AppointmentSlot.is_active == True)
         if status is not None:
             stmt = stmt.where(AppointmentSlot.status == status)
         if doctor_id:

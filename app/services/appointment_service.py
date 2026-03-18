@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.models.appointment import Appointment, AppointmentSlot, AppointmentStatus
+from app.models.appointment import Appointment, AppointmentSlot, AppointmentStatus, SlotStatus
 from app.models.clinic import Clinic
 from app.models.doctor import Doctor
 from app.models.patient import Patient
@@ -64,6 +64,8 @@ class AppointmentService:
             new_count = slot.booked_count + 1
             slot.booked_count = new_count
             slot.is_booked = new_count >= slot.capacity
+            if new_count >= slot.capacity:
+                slot.status = SlotStatus.BOOKED
             self.db.add(slot)
 
             # Single commit — atomically persists appointment + slot update
@@ -106,7 +108,15 @@ class AppointmentService:
         slot = await self._slot_repo.get_by_id(appt.slot_id)
         if slot:
             new_count = max(0, slot.booked_count - 1)
-            await self._slot_repo.update(slot.id, booked_count=new_count, is_booked=False)
+            update_kwargs: dict = {
+                "booked_count": new_count,
+                "is_booked": new_count >= slot.capacity,
+            }
+            # If the slot was auto-marked BOOKED (fully booked) and now has capacity again,
+            # restore it to AVAILABLE so patients can book it.
+            if slot.status == SlotStatus.BOOKED and new_count < slot.capacity:
+                update_kwargs["status"] = SlotStatus.AVAILABLE
+            await self._slot_repo.update(slot.id, **update_kwargs)
 
         return AppointmentResponse.model_validate(cancelled)
 

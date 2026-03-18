@@ -30,7 +30,7 @@ class AvailabilityRepository:
     async def create_bulk(
         self,
         doctor_id: int,
-        items: List[dict],  # [{"day_of_week": int, "start_time": time, "end_time": time}]
+        items: List[dict],  # [{"day_of_week": int, "start_time": time, "end_time": time, "slot_interval": int}]
     ) -> List[DoctorAvailability]:
         records = [
             DoctorAvailability(
@@ -38,6 +38,7 @@ class AvailabilityRepository:
                 day_of_week=item["day_of_week"],
                 start_time=item["start_time"],
                 end_time=item["end_time"],
+                slot_interval=item.get("slot_interval", 15),
             )
             for item in items
         ]

@@ -2,28 +2,82 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_roles
+from app.core.dependencies import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.appointment import SlotStatus
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.repositories.doctor_repository import DoctorRepository
+from app.repositories.slot_repository import SlotRepository
 from app.schemas.slot_schema import SlotCreate, SlotResponse, SlotToggleResponse, SlotUpdate
 from app.services.slot_service import SlotService
 
 router = APIRouter(prefix="/slots", tags=["Slots"])
 
 
+# ── shared auth helpers ───────────────────────────────────────────────────────
+
+async def _require_admin_or_doctor(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Allow admin, super_admin, and doctor roles. Others get 403."""
+    role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role or "").lower()
+    if role not in {"admin", "super_admin", "doctor"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
+    return current_user
+
+
+async def _resolve_doctor_id(
+    current_user: User = Depends(_require_admin_or_doctor),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[int]:
+    """Return the doctor_id for the current user if they are a doctor, else None."""
+    role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role or "").lower()
+    if role == "doctor":
+        doctor = await DoctorRepository(db).get_by_user_id(current_user.id)
+        if doctor is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found for this user.",
+            )
+        return doctor.id
+    return None  # admin / super_admin – no ownership restriction
+
+
+async def _assert_slot_ownership(
+    slot_id: int,
+    owner_doctor_id: Optional[int],
+    db: AsyncSession,
+) -> None:
+    """If owner_doctor_id is set (doctor role), verify the slot belongs to them."""
+    if owner_doctor_id is None:
+        return
+    slot = await SlotRepository(db).get_by_id(slot_id)
+    if slot is None:
+        return  # service layer will raise NotFound
+    if slot.doctor_id != owner_doctor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only manage your own slots.",
+        )
+
+
+# ── routes ────────────────────────────────────────────────────────────────────
+
 @router.post("", response_model=SlotResponse, status_code=201)
 async def create_slot(
     payload: SlotCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("admin", "super_admin")),
+    owner_doctor_id: Optional[int] = Depends(_resolve_doctor_id),
 ):
-    """Admin / Super-Admin: create a single appointment slot.
+    """Admin / Super-Admin / Doctor: create a single appointment slot.
+
+    Doctors may only create slots for themselves – the ``doctor_id`` in the
+    payload must match their own profile.
 
     **Sample request:**
     ```json
@@ -37,6 +91,11 @@ async def create_slot(
     }
     ```
     """
+    if owner_doctor_id is not None and payload.doctor_id != owner_doctor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create slots for your own doctor profile.",
+        )
     return await SlotService(db).create(payload)
 
 
@@ -76,31 +135,17 @@ async def update_slot(
     payload: SlotUpdate,
     force: bool = Query(False, description="Allow editing a booked slot (admin override)"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("admin", "super_admin")),
+    owner_doctor_id: Optional[int] = Depends(_resolve_doctor_id),
 ):
-    """Admin / Super-Admin: update a slot's time, capacity, or status.
+    """Admin / Super-Admin / Doctor: update a slot's time, capacity, or status.
 
-    Booked slots (booked_count > 0) cannot have their time or capacity changed
-    unless ``force=true`` is supplied.
-
-    **Sample request – reschedule a slot:**
-    ```json
-    {
-      "start_time": "2026-03-20T10:00:00",
-      "end_time":   "2026-03-20T10:30:00"
-    }
-    ```
-
-    **Sample request – block a slot:**
-    ```json
-    { "status": "blocked" }
-    ```
-
-    **Sample request – cancel a slot:**
-    ```json
-    { "status": "cancelled" }
-    ```
+    Doctors may only update their own slots. Booked slots cannot have their
+    time or capacity changed unless ``force=true`` is supplied (admin only).
     """
+    await _assert_slot_ownership(slot_id, owner_doctor_id, db)
+    # Doctors cannot use force override
+    if owner_doctor_id is not None:
+        force = False
     return await SlotService(db).update(slot_id, payload, force=force)
 
 
@@ -108,13 +153,11 @@ async def update_slot(
 async def toggle_slot_active(
     slot_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("admin", "super_admin")),
+    owner_doctor_id: Optional[int] = Depends(_resolve_doctor_id),
 ):
-    """Admin / Super-Admin: toggle a slot's active/inactive state.
+    """Admin / Super-Admin / Doctor: toggle a slot's active/inactive state.
 
-    - **Active → Inactive**: hides the slot from the public listing (soft disable).
-    - **Inactive → Active**: makes the slot visible again.
-
+    Doctors may only toggle their own slots.
     Slots with active bookings cannot be deactivated.
 
     **Sample response:**
@@ -126,6 +169,7 @@ async def toggle_slot_active(
     }
     ```
     """
+    await _assert_slot_ownership(slot_id, owner_doctor_id, db)
     return await SlotService(db).toggle_active(slot_id)
 
 
@@ -133,11 +177,14 @@ async def toggle_slot_active(
 async def delete_slot(
     slot_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("admin", "super_admin")),
+    owner_doctor_id: Optional[int] = Depends(_resolve_doctor_id),
 ):
-    """Admin / Super-Admin: soft-delete a slot (sets is_active=False).
+    """Admin / Super-Admin / Doctor: soft-delete a slot (sets is_active=False).
 
+    Doctors may only delete their own slots.
     Slots with active bookings cannot be deleted.
     """
+    await _assert_slot_ownership(slot_id, owner_doctor_id, db)
     await SlotService(db).delete(slot_id)
+
 

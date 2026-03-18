@@ -51,7 +51,7 @@ class AppointmentSlot(Base, TimestampMixin, SoftDeleteMixin):
     start_time: datetime = Column(DateTime(timezone=True), nullable=False, index=True)
     end_time: datetime = Column(DateTime(timezone=True), nullable=False)
     status: SlotStatus = Column(
-        SAEnum(SlotStatus, name="slot_status"),
+        SAEnum(SlotStatus, name="slot_status", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=SlotStatus.AVAILABLE,
         server_default="available",

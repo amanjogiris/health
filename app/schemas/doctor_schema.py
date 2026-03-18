@@ -12,6 +12,11 @@ class AvailabilityInput(BaseModel):
     day_of_week: int = Field(..., ge=0, le=6, description="0=Monday … 6=Sunday")
     start_time: str = Field(..., pattern=r"^\d{2}:\d{2}$", examples=["09:00"])
     end_time: str = Field(..., pattern=r"^\d{2}:\d{2}$", examples=["17:00"])
+    # Minutes per dynamically-generated slot (used by DynamicSlotService)
+    slot_interval: int = Field(
+        default=15, ge=5, le=120,
+        description="Length of each generated slot in minutes (default 15)",
+    )
 
 
 class AvailabilityResponse(BaseModel):
@@ -22,6 +27,7 @@ class AvailabilityResponse(BaseModel):
     day_of_week: int
     start_time: str
     end_time: str
+    slot_interval: int = 15
 
     @field_validator("start_time", "end_time", mode="before")
     @classmethod
