@@ -17,6 +17,15 @@ from app.services.patient_service import PatientService
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
 
+@router.get("/me", response_model=PatientResponse)
+async def my_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["PATIENT"])),
+):
+    """Patient: return own patient profile (includes the real patient.id used in bookings)."""
+    return await PatientService(db).get_by_user(current_user)
+
+
 @router.get("/me/appointments", response_model=List[AppointmentResponse])
 async def my_appointments(
     skip: int = Query(0, ge=0),

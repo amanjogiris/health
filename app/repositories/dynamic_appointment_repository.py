@@ -112,6 +112,20 @@ class DynamicAppointmentRepository:
         )
         return list(result.scalars().all())
 
+    async def list_all(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[DynamicAppointment]:
+        result = await self.db.execute(
+            select(DynamicAppointment)
+            .where(DynamicAppointment.is_active == True)
+            .order_by(DynamicAppointment.start_time.asc())
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     # ── Write ─────────────────────────────────────────────────────────────────
 
     async def create(

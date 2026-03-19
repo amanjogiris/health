@@ -308,8 +308,14 @@ class DynamicSlotService:
         if appt is None:
             raise NotFoundError("DynamicAppointment")
 
-        if not is_admin and appt.patient_id != requesting_user_id:
-            raise ForbiddenError("You are not authorised to cancel this appointment.")
+        if not is_admin:
+            # requesting_user_id is the users-table PK. Resolve the patient record
+            # so we compare against the patients-table PK stored in the appointment.
+            from app.repositories.patient_repository import PatientRepository
+            patient = await PatientRepository(self.db).get_by_user_id(requesting_user_id)
+            patient_pk = patient.id if patient else requesting_user_id
+            if appt.patient_id != patient_pk:
+                raise ForbiddenError("You are not authorised to cancel this appointment.")
 
         if appt.status.value == "cancelled":
             raise BusinessRuleError("Appointment is already cancelled.")

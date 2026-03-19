@@ -17,12 +17,12 @@ GET  /api/v1/appointments/dynamic/{appt_id}
 from __future__ import annotations
 
 import datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_role, require_roles
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.schemas.dynamic_slot_schema import (
@@ -122,7 +122,125 @@ async def book_dynamic_slot(
     }
     ```
     """
+    # For PATIENT role: always resolve patient_id from the patients table using
+    # the authenticated user's ID.  This prevents a patient from booking on behalf
+    # of another patient by supplying a different patient_id in the payload.
+    if current_user.role.value.lower() == "patient":
+        from app.repositories.patient_repository import PatientRepository
+        patient = await PatientRepository(db).get_by_user_id(current_user.id)
+        if patient is None:
+            from app.utils.exceptions import NotFoundError
+            raise NotFoundError("Patient profile for current user")
+        # Override payload with the real patients-table ID
+        payload = payload.model_copy(update={"patient_id": patient.id})
+
     return await DynamicSlotService(db).book(payload)
+
+
+@appt_dynamic_router.get(
+    "",
+    response_model=List[DynamicAppointmentResponse],
+    summary="List all dynamic appointments (admin)",
+)
+async def list_dynamic_appointments(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(["ADMIN", "SUPER_ADMIN"])),
+):
+    """Admin / Super-Admin: list dynamic appointments across the system."""
+    from app.repositories.dynamic_appointment_repository import (
+        DynamicAppointmentRepository,
+    )
+
+    repo = DynamicAppointmentRepository(db)
+    appts = await repo.list_all(skip=skip, limit=limit)
+
+    service = DynamicSlotService(db)
+    results = []
+    for appt in appts:
+        interval = await service._get_interval_for_appointment(appt)
+        results.append(DynamicAppointmentResponse.from_orm_with_interval(appt, interval))
+    return results
+
+
+@appt_dynamic_router.get(
+    "/patients/me",
+    response_model=List[DynamicAppointmentResponse],
+    summary="List logged-in patient's dynamic appointments",
+)
+async def list_my_dynamic_appointments(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000 ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["PATIENT"])),
+):
+    """Patient: list their own dynamic appointments."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    from app.repositories.dynamic_appointment_repository import (
+        DynamicAppointmentRepository,
+    )
+    from app.repositories.patient_repository import PatientRepository
+
+    logger.info(f"[DIAGNOSE] Fetching appointments for user_id={current_user.id}, role={current_user.role}")
+    
+    patient = await PatientRepository(db).get_by_user_id(current_user.id)
+    if patient is None:
+        logger.warning(f"[DIAGNOSE] No patient found for user_id={current_user.id}")
+        # Patient record not found – return empty list (patient may not have completed profile setup)
+        return []
+
+    logger.info(f"[DIAGNOSE] Found patient id={patient.id} for user_id={current_user.id}")
+
+    repo = DynamicAppointmentRepository(db)
+    appts = await repo.list_by_patient(patient.id, skip=skip, limit=limit)
+    
+    logger.info(f"[DIAGNOSE] Found {len(appts)} dynamic appointments for patient_id={patient.id}")
+    
+    # Resolve intervals
+    service = DynamicSlotService(db)
+    results = []
+    for appt in appts:
+        interval = await service._get_interval_for_appointment(appt)
+        results.append(DynamicAppointmentResponse.from_orm_with_interval(appt, interval))
+    
+    logger.info(f"[DIAGNOSE] Returning {len(results)} mapped appointments")
+    return results
+
+
+@appt_dynamic_router.get(
+    "/doctors/me",
+    response_model=List[DynamicAppointmentResponse],
+    summary="List logged-in doctor's dynamic appointments",
+)
+async def list_my_doctor_dynamic_appointments(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["DOCTOR"])),
+):
+    """Doctor: list their own dynamic appointments."""
+    from app.repositories.dynamic_appointment_repository import (
+        DynamicAppointmentRepository,
+    )
+    from app.repositories.doctor_repository import DoctorRepository
+
+    doctor = await DoctorRepository(db).get_by_user_id(current_user.id)
+    if not doctor:
+        raise NotFoundError("Doctor profile")
+
+    repo = DynamicAppointmentRepository(db)
+    appts = await repo.list_by_doctor(doctor.id, skip=skip, limit=limit)
+
+    # Resolve intervals
+    service = DynamicSlotService(db)
+    results = []
+    for appt in appts:
+        interval = await service._get_interval_for_appointment(appt)
+        results.append(DynamicAppointmentResponse.from_orm_with_interval(appt, interval))
+    return results
 
 
 @appt_dynamic_router.post(
@@ -176,8 +294,12 @@ async def get_dynamic_appointment(
 
     is_admin = current_user.role.value.lower() in ("admin", "super_admin")
     if not is_admin and appt.patient_id != current_user.id:
-        from app.utils.exceptions import ForbiddenError
-        raise ForbiddenError("You are not authorised to view this appointment.")
+        # patient_id is the patients-table PK, not the user PK — resolve correctly.
+        from app.repositories.patient_repository import PatientRepository
+        patient = await PatientRepository(db).get_by_user_id(current_user.id)
+        if patient is None or appt.patient_id != patient.id:
+            from app.utils.exceptions import ForbiddenError
+            raise ForbiddenError("You are not authorised to view this appointment.")
 
     # Resolve interval for slots_count
     service = DynamicSlotService(db)

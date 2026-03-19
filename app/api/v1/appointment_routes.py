@@ -25,6 +25,14 @@ async def book_appointment(
 ):
     """Patient / Admin: book an appointment. Uses row-level locking to prevent double booking."""
     try:
+        # For PATIENT role: always resolve the real patients-table ID from the
+        # authenticated user so the frontend cannot spoof a different patient_id.
+        if current_user.role.value.lower() == "patient":
+            from app.repositories.patient_repository import PatientRepository
+            patient = await PatientRepository(db).get_by_user_id(current_user.id)
+            if patient is not None:
+                payload = payload.model_copy(update={"patient_id": patient.id})
+
         appt = await AppointmentService(db).book(payload)
         return BookingResponse(
             success=True,

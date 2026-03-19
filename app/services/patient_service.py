@@ -1,8 +1,9 @@
 """Patient service – profile retrieval and updates."""
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, orm
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.repositories.patient_repository import PatientRepository
 from app.repositories.appointment_repository import AppointmentRepository
@@ -13,6 +14,9 @@ from app.schemas.pagination import PaginatedResponse
 from app.utils.exceptions import NotFoundError, ForbiddenError
 from app.models.user import User, UserRole
 from app.models.patient import Patient
+from app.models.appointment import Appointment, AppointmentSlot
+from app.models.doctor import Doctor
+from app.models.clinic import Clinic
 from typing import List, Optional
 
 
@@ -27,6 +31,13 @@ class PatientService:
         patient = await self._repo.get_by_id(patient_id)
         if patient is None:
             raise NotFoundError("Patient")
+        return PatientResponse.model_validate(patient)
+
+    async def get_by_user(self, current_user: User) -> PatientResponse:
+        """Return the patient profile belonging to the authenticated user."""
+        patient = await self._repo.get_by_user_id(current_user.id)
+        if patient is None:
+            raise NotFoundError("Patient profile for current user")
         return PatientResponse.model_validate(patient)
 
     async def get_with_ownership_check(
@@ -147,5 +158,38 @@ class PatientService:
     async def get_appointments(
         self, patient_id: int, skip: int = 0, limit: int = 100
     ) -> List[AppointmentResponse]:
-        data = await self._appt_repo.list_by_patient(patient_id, skip, limit)
-        return [AppointmentResponse.model_validate(a) for a in data]
+        """Return appointments for a patient, enriched with slot_time, doctor_name, clinic_name."""
+        DoctorUser = aliased(User)
+
+        stmt = (
+            select(
+                Appointment,
+                DoctorUser.name.label("doctor_name"),
+                Clinic.name.label("clinic_name"),
+                AppointmentSlot.start_time.label("slot_start"),
+            )
+            .select_from(Appointment)
+            .join(Doctor, Appointment.doctor_id == Doctor.id)
+            .join(DoctorUser, Doctor.user_id == DoctorUser.id)
+            .join(Clinic, Appointment.clinic_id == Clinic.id)
+            .outerjoin(AppointmentSlot, Appointment.slot_id == AppointmentSlot.id)
+            .where(
+                Appointment.patient_id == patient_id,
+                Appointment.is_active == True,
+            )
+            .order_by(Appointment.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+        rows = result.all()
+
+        responses: List[AppointmentResponse] = []
+        for row in rows:
+            appt: Appointment = row[0]
+            resp = AppointmentResponse.model_validate(appt)
+            resp.doctor_name = row.doctor_name
+            resp.clinic_name = row.clinic_name
+            resp.slot_time = row.slot_start.isoformat() if row.slot_start else None
+            responses.append(resp)
+        return responses

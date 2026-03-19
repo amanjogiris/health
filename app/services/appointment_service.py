@@ -90,7 +90,12 @@ class AppointmentService:
             current_user.role == UserRole.PATIENT
             and appt.patient_id != current_user.id
         ):
-            raise ForbiddenError("You are not authorised to cancel this appointment.")
+            # patient_id in the DB is the patients-table PK, not the user PK.
+            # Resolve the patient record and compare correctly.
+            from app.repositories.patient_repository import PatientRepository
+            patient = await PatientRepository(self.db).get_by_user_id(current_user.id)
+            if patient is None or appt.patient_id != patient.id:
+                raise ForbiddenError("You are not authorised to cancel this appointment.")
 
         if (
             current_user.role == UserRole.DOCTOR
@@ -155,8 +160,14 @@ class AppointmentService:
             raise NotFoundError("Appointment")
 
         is_admin = current_user.role.value in ("admin", "super_admin")
+        # Resolve real patients-table PK for patient role comparisons
+        patient_pk: int | None = None
+        if current_user.role == UserRole.PATIENT:
+            from app.repositories.patient_repository import PatientRepository
+            patient = await PatientRepository(self.db).get_by_user_id(current_user.id)
+            patient_pk = patient.id if patient else None
         is_patient_owner = (
-            current_user.role == UserRole.PATIENT and appt.patient_id == current_user.id
+            current_user.role == UserRole.PATIENT and patient_pk is not None and appt.patient_id == patient_pk
         )
         is_doctor_owner = (
             current_user.role == UserRole.DOCTOR and appt.doctor_id == current_user.id
