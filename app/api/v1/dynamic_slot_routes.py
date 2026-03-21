@@ -234,12 +234,36 @@ async def list_my_doctor_dynamic_appointments(
     repo = DynamicAppointmentRepository(db)
     appts = await repo.list_by_doctor(doctor.id, skip=skip, limit=limit)
 
-    # Resolve intervals
+    # Batch-resolve patient names (patient_id may be Patient.id or User.id)
+    from sqlalchemy import select as sa_select
+    from app.models.patient import Patient
+    from app.models.user import User as UserModel
+    patient_ids = list({a.patient_id for a in appts})
+    user_map: dict = {}
+    if patient_ids:
+        result = await db.execute(
+            sa_select(Patient.id, UserModel.name)
+            .join(UserModel, Patient.user_id == UserModel.id)
+            .where(Patient.id.in_(patient_ids))
+        )
+        user_map = {pid: uname for pid, uname in result.all() if uname}
+        unresolved = [pid for pid in patient_ids if pid not in user_map]
+        if unresolved:
+            fallback = await db.execute(
+                sa_select(UserModel.id, UserModel.name).where(UserModel.id.in_(unresolved))
+            )
+            for uid, uname in fallback.all():
+                if uname:
+                    user_map[uid] = uname
+
+    # Resolve intervals and attach patient names
     service = DynamicSlotService(db)
     results = []
     for appt in appts:
         interval = await service._get_interval_for_appointment(appt)
-        results.append(DynamicAppointmentResponse.from_orm_with_interval(appt, interval))
+        resp = DynamicAppointmentResponse.from_orm_with_interval(appt, interval)
+        resp.patient_name = user_map.get(appt.patient_id)
+        results.append(resp)
     return results
 
 

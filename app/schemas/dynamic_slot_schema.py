@@ -104,6 +104,7 @@ class DynamicAppointmentResponse(BaseModel):
     cancelled_at: Optional[datetime.datetime] = None
     cancelled_reason: Optional[str] = None
     created_at: Optional[datetime.datetime] = None
+    patient_name: Optional[str] = None
 
     @classmethod
     def from_orm_with_interval(
