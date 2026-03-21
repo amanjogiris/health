@@ -1,7 +1,7 @@
 """Appointment repository."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import select
@@ -71,7 +71,7 @@ class AppointmentRepository:
         if appt is None:
             return None
         appt.status = AppointmentStatus.CANCELLED
-        appt.cancelled_at = datetime.utcnow()
+        appt.cancelled_at = datetime.now(timezone.utc)
         appt.cancelled_reason = reason
         self.db.add(appt)
         await self.db.commit()

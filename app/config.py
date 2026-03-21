@@ -31,11 +31,15 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
     # CORS – must be explicit origins (not "*") when allow_credentials=True
-    ALLOWED_ORIGINS: list[str] = os.getenv(
+    _raw_origins: str = os.getenv(
         "ALLOWED_ORIGINS",
         "http://localhost:3000,http://127.0.0.1:3000",
-    ).split(",")
-
+    ).strip()
+    if _raw_origins.startswith("["):
+        import json
+        ALLOWED_ORIGINS: list[str] = json.loads(_raw_origins)
+    else:
+        ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
     @property
     def DATABASE_URL(self) -> str:
         from urllib.parse import quote_plus

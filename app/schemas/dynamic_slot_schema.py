@@ -71,12 +71,15 @@ class DynamicBookRequest(BaseModel):
 
     @model_validator(mode="after")
     def start_must_be_future(self) -> "DynamicBookRequest":
-        # Use tz-naive comparison with utcnow for simplicity; service adds tz checks.
-        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        # Slots are stored as "IST time in UTC field" (e.g. 10:00+00:00 means 10:00 AM IST).
+        # To correctly reject past slots we compare against IST now expressed the same way:
+        # strip the IST offset from current IST time so it matches the stored fake-UTC convention.
+        IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+        now_as_fake_utc = datetime.datetime.now(tz=IST).replace(tzinfo=datetime.timezone.utc)
         start = self.start_time
         if start.tzinfo is None:
             start = start.replace(tzinfo=datetime.timezone.utc)
-        if start < now:
+        if start < now_as_fake_utc:
             raise ValueError("start_time must be in the future.")
         return self
 
