@@ -21,8 +21,8 @@ v1_router.include_router(doctor_routes.router)
 v1_router.include_router(doctor_dynamic_router)   # GET /doctors/{id}/dynamic-slots
 v1_router.include_router(clinic_routes.router)
 v1_router.include_router(slot_routes.router)
-v1_router.include_router(appointment_routes.router)
-v1_router.include_router(appt_dynamic_router)     # POST /appointments/dynamic
+v1_router.include_router(appt_dynamic_router)     # POST/GET /appointments/dynamic  ← must be before appointment_routes
+v1_router.include_router(appointment_routes.router)  # GET /appointments/{id} catch-all is AFTER dynamic routes
 v1_router.include_router(admin_routes.router)
 v1_router.include_router(leave_routes.router)  # POST/GET/DELETE /doctors/{id}/leaves
 

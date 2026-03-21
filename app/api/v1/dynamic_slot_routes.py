@@ -149,18 +149,40 @@ async def list_dynamic_appointments(
     _: User = Depends(require_role(["ADMIN", "SUPER_ADMIN"])),
 ):
     """Admin / Super-Admin: list dynamic appointments across the system."""
-    from app.repositories.dynamic_appointment_repository import (
-        DynamicAppointmentRepository,
-    )
+    from app.repositories.dynamic_appointment_repository import DynamicAppointmentRepository
+    from sqlalchemy import select as sa_select
+    from app.models.patient import Patient
+    from app.models.user import User as UserModel
 
     repo = DynamicAppointmentRepository(db)
     appts = await repo.list_all(skip=skip, limit=limit)
+
+    # Batch-resolve patient names (patient_id may be Patient.id or User.id)
+    patient_ids = list({a.patient_id for a in appts})
+    user_map: dict = {}
+    if patient_ids:
+        result = await db.execute(
+            sa_select(Patient.id, UserModel.name)
+            .join(UserModel, Patient.user_id == UserModel.id)
+            .where(Patient.id.in_(patient_ids))
+        )
+        user_map = {pid: uname for pid, uname in result.all() if uname}
+        unresolved = [pid for pid in patient_ids if pid not in user_map]
+        if unresolved:
+            fallback = await db.execute(
+                sa_select(UserModel.id, UserModel.name).where(UserModel.id.in_(unresolved))
+            )
+            for uid, uname in fallback.all():
+                if uname:
+                    user_map[uid] = uname
 
     service = DynamicSlotService(db)
     results = []
     for appt in appts:
         interval = await service._get_interval_for_appointment(appt)
-        results.append(DynamicAppointmentResponse.from_orm_with_interval(appt, interval))
+        resp = DynamicAppointmentResponse.from_orm_with_interval(appt, interval)
+        resp.patient_name = user_map.get(appt.patient_id)
+        results.append(resp)
     return results
 
 
@@ -265,6 +287,44 @@ async def list_my_doctor_dynamic_appointments(
         resp.patient_name = user_map.get(appt.patient_id)
         results.append(resp)
     return results
+
+
+@appt_dynamic_router.patch(
+    "/{appt_id}/status",
+    response_model=DynamicAppointmentResponse,
+    summary="Update dynamic appointment status (admin / doctor)",
+)
+async def update_dynamic_appointment_status(
+    appt_id: int,
+    status: str = Query(..., description="New status: completed | no_show | booked"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["ADMIN", "SUPER_ADMIN", "DOCTOR"])),
+):
+    """Admin / Doctor: change the status of a dynamic appointment.
+
+    Allowed transitions: ``booked`` ↔ ``completed`` | ``no_show``.
+    """
+    from app.repositories.dynamic_appointment_repository import DynamicAppointmentRepository
+    from app.models.dynamic_appointment import DynamicAppointmentStatus
+
+    allowed = {s.value for s in DynamicAppointmentStatus} - {"cancelled"}
+    if status not in allowed:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail=f"Invalid status '{status}'. Allowed: {sorted(allowed)}")
+
+    repo = DynamicAppointmentRepository(db)
+    appt = await repo.get_by_id(appt_id)
+    if appt is None:
+        raise NotFoundError("DynamicAppointment")
+
+    appt.status = DynamicAppointmentStatus(status)
+    db.add(appt)
+    await db.commit()
+    await db.refresh(appt)
+
+    service = DynamicSlotService(db)
+    interval = await service._get_interval_for_appointment(appt)
+    return DynamicAppointmentResponse.from_orm_with_interval(appt, interval)
 
 
 @appt_dynamic_router.post(
