@@ -344,11 +344,13 @@ async def cancel_dynamic_appointment(
     - Admins and super-admins may cancel any appointment.
     """
     is_admin = current_user.role.value.lower() in ("admin", "super_admin")
+    is_doctor = current_user.role.value.lower() == "doctor"
     return await DynamicSlotService(db).cancel(
         appt_id=appt_id,
         reason=payload.cancelled_reason,
         requesting_user_id=current_user.id,
         is_admin=is_admin,
+        requesting_doctor_id=current_user.id if is_doctor else None,
     )
 
 

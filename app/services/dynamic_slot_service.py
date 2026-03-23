@@ -299,6 +299,7 @@ class DynamicSlotService:
         reason: str,
         requesting_user_id: int,
         is_admin: bool = False,
+        requesting_doctor_id: Optional[int] = None,
     ) -> DynamicAppointmentResponse:
         """Cancel a dynamic appointment.
 
@@ -309,13 +310,19 @@ class DynamicSlotService:
             raise NotFoundError("DynamicAppointment")
 
         if not is_admin:
-            # requesting_user_id is the users-table PK. Resolve the patient record
-            # so we compare against the patients-table PK stored in the appointment.
-            from app.repositories.patient_repository import PatientRepository
-            patient = await PatientRepository(self.db).get_by_user_id(requesting_user_id)
-            patient_pk = patient.id if patient else requesting_user_id
-            if appt.patient_id != patient_pk:
-                raise ForbiddenError("You are not authorised to cancel this appointment.")
+            # Doctors may cancel their own appointments; patients may cancel their own.
+            if requesting_doctor_id is not None:
+                doctor = await self._doctor_repo.get_by_user_id(requesting_doctor_id)
+                if doctor is None or appt.doctor_id != doctor.id:
+                    raise ForbiddenError("You are not authorised to cancel this appointment.")
+            else:
+                # requesting_user_id is the users-table PK. Resolve the patient record
+                # so we compare against the patients-table PK stored in the appointment.
+                from app.repositories.patient_repository import PatientRepository
+                patient = await PatientRepository(self.db).get_by_user_id(requesting_user_id)
+                patient_pk = patient.id if patient else requesting_user_id
+                if appt.patient_id != patient_pk:
+                    raise ForbiddenError("You are not authorised to cancel this appointment.")
 
         if appt.status.value == "cancelled":
             raise BusinessRuleError("Appointment is already cancelled.")
